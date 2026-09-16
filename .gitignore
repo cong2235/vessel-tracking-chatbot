@@ -1,0 +1,12 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+logs/*.log
+!logs/.gitkeep
+
+# Đề bài gốc: tài liệu tuyển dụng nội bộ, không phát tán lại cùng repo lời giải
+BÀI TEST ỨNG VIÊN LLM ENGINEER.docx
