@@ -22,3 +22,29 @@ def get_data_dir() -> Path:
 
 def get_log_level() -> str:
     return os.environ.get("LOG_LEVEL", "INFO").upper()
+
+
+def get_openai_api_key() -> str:
+    value = os.environ.get("OPENAI_API_KEY")
+    if not value:
+        raise RuntimeError("OPENAI_API_KEY chua duoc thiet lap (xem .env.example)")
+    return value
+
+
+def get_openai_model() -> str:
+    return os.environ.get("OPENAI_CHAT_MODEL", "gpt-4o-mini")
+
+
+def get_openai_base_url() -> str | None:
+    return os.environ.get("OPENAI_BASE_URL") or None
+
+
+def get_max_tokens() -> int:
+    # gpt-oss dung reasoning_content (Harmony) truoc content cuoi - can du
+    # token hoac content tra ve rong.
+    return int(os.environ.get("LLM_MAX_TOKENS", "4096"))
+
+
+def get_llm_timeout_seconds() -> float:
+    # SDK mac dinh 600s - qua dai, tung treo agent vo han khi mang loi.
+    return float(os.environ.get("LLM_TIMEOUT_SECONDS", "60"))
