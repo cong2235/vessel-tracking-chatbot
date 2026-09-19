@@ -48,3 +48,11 @@ def get_max_tokens() -> int:
 def get_llm_timeout_seconds() -> float:
     # SDK mac dinh 600s - qua dai, tung treo agent vo han khi mang loi.
     return float(os.environ.get("LLM_TIMEOUT_SECONDS", "60"))
+
+
+def get_app_host() -> str:
+    return os.environ.get("APP_HOST", "0.0.0.0")
+
+
+def get_app_port() -> int:
+    return int(os.environ.get("APP_PORT", "8000"))
