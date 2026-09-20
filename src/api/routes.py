@@ -13,6 +13,7 @@ from fastapi.responses import StreamingResponse
 
 from src.agent import store
 from src.agent.agent import AgentTurnResult, run_agent_turn_stream
+from src.agent.memory import build_llm_context
 from src.api.schemas import ChatRequest, ConversationCreate, ConversationOut, HealthOut, MessageOut
 from src.db import get_cursor
 from src.prompts.system_prompts import SYSTEM_PROMPT
@@ -71,11 +72,9 @@ def chat(conversation_id: UUID, body: ChatRequest) -> StreamingResponse:
         raise HTTPException(status_code=404, detail="Khong tim thay hoi thoai")
 
     store.append_message(conversation_id, "user", body.message)  # luu truoc khi goi LLM, tranh mat cau hoi neu LLM loi
-
-    # Chua co bo nho dai han (R3, se lam o Ngay 5) - dung nguyen van toan bo
-    # lich su hoi thoai lam context.
+    context_messages = build_llm_context(conversation_id, body.message)
     messages: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}]
-    messages.extend(store.to_llm_message(r) for r in store.list_messages(conversation_id))
+    messages.extend(context_messages)
 
     def event_generator():
         result = AgentTurnResult()

@@ -56,3 +56,26 @@ def get_app_host() -> str:
 
 def get_app_port() -> int:
     return int(os.environ.get("APP_PORT", "8000"))
+
+
+def get_context_window_turns() -> int:
+    return int(os.environ.get("CONTEXT_WINDOW_TURNS", "10"))
+
+
+def get_embedding_model() -> str:
+    return os.environ.get("EMBEDDING_MODEL", "text-embedding-3-small")
+
+
+def get_reranker_enabled() -> bool:
+    return os.environ.get("RERANKER_ENABLED", "false").lower() == "true"
+
+
+def get_reranker_base_url() -> str:
+    value = os.environ.get("RERANKER_BASE_URL")
+    if not value:
+        raise RuntimeError("RERANKER_BASE_URL chua duoc thiet lap (xem .env.example)")
+    return value
+
+
+def get_reranker_model() -> str:
+    return os.environ.get("RERANKER_MODEL", "@cf/baai/bge-reranker-base")
