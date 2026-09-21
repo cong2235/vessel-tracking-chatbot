@@ -64,6 +64,24 @@ def search_vessel(query: str, limit: int = DEFAULT_LIMIT) -> list[dict[str, Any]
         return cur.fetchall()
 
 
+def list_vessels_by_type(ship_type_substring: str, limit: int = 500) -> list[dict[str, Any]]:
+    # ship_type_substring la tieng Anh (vd. "Tanker", "Cargo", "Fishing") -
+    # khop ILIKE voi ship_type_summary. LLM tu anh xa tu tieng Viet nguoi
+    # dung dung sang tu khoa nay (huong dan trong tool description).
+    with get_cursor() as cur:
+        cur.execute(
+            """
+            SELECT vessel_id, mmsi, shipname, ship_type_summary
+            FROM vessels
+            WHERE ship_type_summary ILIKE %(pattern)s
+            ORDER BY shipname
+            LIMIT %(limit)s
+            """,
+            {"pattern": f"%{ship_type_substring}%", "limit": limit},
+        )
+        return cur.fetchall()
+
+
 def get_vessel_info(vessel_id: str) -> dict[str, Any] | None:
     with get_cursor() as cur:
         cur.execute(

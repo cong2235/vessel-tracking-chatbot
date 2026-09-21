@@ -4,7 +4,7 @@ Ngày 1 (yêu cầu DATABASE_URL trỏ tới DB đã chạy scripts/load_data.py
 
 from __future__ import annotations
 
-from src.tools.vessels import get_vessel_info, search_vessel
+from src.tools.vessels import get_vessel_info, list_vessels_by_type, search_vessel
 
 EVER_VIVA_MMSI = 563240200
 EVER_VIVA_VESSEL_ID = "01926a45-3730-7381-9acb-074f84e2e999"
@@ -60,3 +60,14 @@ def test_get_vessel_info_includes_all_ownership_roles():
     assert len(info["ownership"]) == 6
     roles = {row["role"] for row in info["ownership"]}
     assert "registered_owner" in roles
+
+
+def test_list_vessels_by_type_matches_ais_label():
+    results = list_vessels_by_type("Fishing")
+    assert len(results) > 0
+    assert all("Fishing" in r["ship_type_summary"] for r in results)
+    assert EVER_VIVA_VESSEL_ID not in [r["vessel_id"] for r in results]  # EVER VIVA la Cargo
+
+
+def test_list_vessels_by_type_no_match_returns_empty():
+    assert list_vessels_by_type("KhongTonTaiLoaiTauNay") == []

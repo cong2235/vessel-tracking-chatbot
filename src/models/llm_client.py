@@ -8,7 +8,8 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Iterator
 
-from openai import OpenAI
+from openai import APIConnectionError, APIStatusError, OpenAI
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from src.utils.config import (
     get_llm_timeout_seconds,
@@ -17,6 +18,24 @@ from src.utils.config import (
     get_openai_base_url,
     get_openai_model,
 )
+
+
+def _is_retryable(exc: BaseException) -> bool:
+    # 5xx/loi mang la tam thoi, dang retry. Loi 4xx (request sai) retry lai
+    # cung se fail nhu vay - khong retry, tra loi ngay.
+    if isinstance(exc, APIConnectionError):
+        return True
+    return isinstance(exc, APIStatusError) and exc.status_code >= 500
+
+
+@retry(
+    retry=retry_if_exception(_is_retryable),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=8),
+    reraise=True,
+)
+def _create_completion(client: OpenAI, **kwargs: Any) -> Any:
+    return client.chat.completions.create(**kwargs)
 
 
 @dataclass
@@ -62,7 +81,7 @@ def chat_once(
         kwargs["tools"] = tools
         kwargs["tool_choice"] = "auto"
 
-    response = client.chat.completions.create(**kwargs)
+    response = _create_completion(client, **kwargs)
     message = response.choices[0].message
 
     # content=None (tool_calls-only) hop le theo OpenAI nhung mot so API
@@ -114,7 +133,7 @@ def chat_stream(
         kwargs["tools"] = tools
         kwargs["tool_choice"] = "auto"
 
-    stream = client.chat.completions.create(**kwargs)
+    stream = _create_completion(client, **kwargs)
 
     content_parts: list[str] = []
     tool_call_buffers: dict[int, dict[str, str | None]] = {}

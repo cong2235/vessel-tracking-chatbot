@@ -6,10 +6,10 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from src.tools.dark_gaps import get_dark_gaps
-from src.tools.journeys import get_journey
+from src.tools.journeys import get_journey, get_multi_journey_geojson
 from src.tools.ownership import get_company_vessels
 from src.tools.positions import get_position_at_time
-from src.tools.vessels import get_vessel_info, search_vessel
+from src.tools.vessels import get_vessel_info, list_vessels_by_type, search_vessel
 
 TOOL_SPECS: list[dict[str, Any]] = [
     {
@@ -155,6 +155,59 @@ TOOL_SPECS: list[dict[str, Any]] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_vessels_by_type",
+            "description": (
+                "Tim tau theo LOAI TAU. Nguoi dung hoi bang tieng Viet ('tau cho "
+                "dau', 'tau hang', 'tau ca') - PHAI tu dich sang tu khoa tieng Anh "
+                "chuan AIS truoc khi goi: 'tau cho dau'->'Tanker', 'tau hang'/'tau "
+                "container'->'Cargo', 'tau ca'->'Fishing'. Dung khi can loc tau theo "
+                "loai (vd. ket hop voi get_multi_journey_geojson de ve hanh trinh "
+                "'tat ca tau hang')."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "ship_type_substring": {
+                        "type": "string",
+                        "description": "Tu khoa tieng Anh, vi du 'Tanker', 'Cargo', 'Fishing'",
+                    },
+                },
+                "required": ["ship_type_substring"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_multi_journey_geojson",
+            "description": (
+                "Lay hanh trinh cua NHIEU tau cung luc (toi da 50 tau/lan) trong 1 "
+                "khoang thoi gian, de ve len ban do. LUON goi search_vessel/"
+                "get_company_vessels/list_vessels_by_type TRUOC de lay danh sach "
+                "vessel_id can thiet, roi moi goi tool nay. Ket qua tra ve chi co "
+                "SO LIEU TOM TAT (so tau, tong so diem, khung toa do bbox, danh "
+                "sach ten tau) — toa do chi tiet duoc gui thang cho giao dien ban "
+                "do, KHONG co trong ket qua ban nhan duoc, nen KHONG the va KHONG "
+                "can mo ta tung diem toa do trong cau tra loi."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "vessel_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Danh sach vessel_id (uuid) can lay hanh trinh",
+                    },
+                    "start_ts": {"type": "string", "description": "ISO-8601 UTC"},
+                    "end_ts": {"type": "string", "description": "ISO-8601 UTC"},
+                },
+                "required": ["vessel_ids", "start_ts", "end_ts"],
+            },
+        },
+    },
 ]
 
 TOOL_REGISTRY: dict[str, Callable[..., Any]] = {
@@ -164,4 +217,6 @@ TOOL_REGISTRY: dict[str, Callable[..., Any]] = {
     "get_position_at_time": get_position_at_time,
     "get_journey": get_journey,
     "get_dark_gaps": get_dark_gaps,
+    "list_vessels_by_type": list_vessels_by_type,
+    "get_multi_journey_geojson": get_multi_journey_geojson,
 }
