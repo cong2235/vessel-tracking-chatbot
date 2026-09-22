@@ -19,11 +19,39 @@
 
   #chat-panel { flex: 1; display: flex; flex-direction: column; min-width: 0; }
   #messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
-  .msg { max-width: 70%; padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
-  .msg.user { align-self: flex-end; background: #3b82f6; color: white; border-bottom-right-radius: 2px; }
-  .msg.assistant { align-self: flex-start; background: white; border: 1px solid #ddd; border-bottom-left-radius: 2px; }
-  .msg.tool { align-self: flex-start; background: #fef3c7; color: #92400e; font-size: 12px; font-family: monospace; }
-  .msg.error { align-self: flex-start; background: #fee2e2; color: #991b1b; }
+
+  .turn { display: flex; flex-direction: column; max-width: 78%; gap: 4px; }
+  .turn.user-turn { align-self: flex-end; align-items: flex-end; }
+  .turn.assistant-turn { align-self: flex-start; align-items: flex-start; }
+
+  .msg { padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.5; word-break: break-word; }
+  .msg.user { background: #3b82f6; color: white; border-bottom-right-radius: 2px; white-space: pre-wrap; }
+  .msg.assistant { background: white; border: 1px solid #ddd; border-bottom-left-radius: 2px; }
+  .msg.assistant.empty::after { content: "●●●"; color: #9ca3af; letter-spacing: 2px; animation: blink 1.2s infinite; }
+  .msg.error { align-self: flex-start; background: #fee2e2; color: #991b1b; padding: 10px 14px; border-radius: 12px; font-size: 13px; }
+  @keyframes blink { 0%, 100% { opacity: .3; } 50% { opacity: 1; } }
+
+  /* markdown rendering trong bubble assistant */
+  .msg.assistant p { margin: 0 0 8px; }
+  .msg.assistant p:last-child { margin-bottom: 0; }
+  .msg.assistant ul, .msg.assistant ol { margin: 4px 0 8px; padding-left: 20px; }
+  .msg.assistant table { border-collapse: collapse; width: 100%; margin: 6px 0; font-size: 13px; }
+  .msg.assistant th, .msg.assistant td { border: 1px solid #e2e5ea; padding: 5px 9px; text-align: left; }
+  .msg.assistant th { background: #f3f4f6; }
+  .msg.assistant code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
+  .msg.assistant strong { color: #1e2430; }
+
+  /* khoi "qua trinh xu ly" - hien tool_call truoc khi co cau tra loi, khong lo du lieu
+     (su kien tool_call chi mang ten tool + tham so, khong mang ket qua DB) */
+  .trace { align-self: flex-start; font-size: 12.5px; color: #6b7280; max-width: 78%; }
+  .trace-summary { cursor: pointer; display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; background: #eef1f6; border-radius: 20px; user-select: none; }
+  .trace-summary:hover { background: #e3e7ee; }
+  .trace-summary .chevron { transition: transform .15s; font-size: 10px; }
+  .trace.expanded .trace-summary .chevron { transform: rotate(90deg); }
+  .trace-steps { display: none; flex-direction: column; gap: 4px; margin-top: 6px; padding-left: 4px; border-left: 2px solid #e3e7ee; }
+  .trace.expanded .trace-steps { display: flex; }
+  .trace-step { display: flex; align-items: center; gap: 6px; padding: 2px 10px; }
+  .trace-step .args { color: #9ca3af; font-family: ui-monospace, monospace; font-size: 11px; }
 
   #chat-form { display: flex; padding: 12px; border-top: 1px solid #ddd; background: white; gap: 8px; }
   #chat-input { flex: 1; padding: 10px 14px; border: 1px solid #ccc; border-radius: 20px; font-size: 14px; }
@@ -56,9 +84,31 @@
 <div id="map-panel"><div id="map"></div></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/marked@12/marked.min.js"></script>
+<script src="https://unpkg.com/dompurify@3/dist/purify.min.js"></script>
 <script>
   let currentConversationId = null;
   let map, currentLayer;
+
+  // Nhan tool -> nhan tieng Viet + icon de hien thi "qua trinh xu ly" cho
+  // nguoi dung, khong can biet ten ham Python. Tool la nao khong co trong
+  // danh sach van hien duoc (fallback ten tho).
+  const TOOL_LABELS = {
+    search_vessel: ["🔎", "Tìm kiếm tàu"],
+    get_vessel_info: ["📄", "Lấy thông tin chi tiết tàu"],
+    get_company_vessels: ["🏢", "Tra cứu công ty & tàu liên quan"],
+    get_position_at_time: ["📍", "Tra cứu vị trí tại thời điểm"],
+    get_journey: ["🧭", "Tính hành trình"],
+    get_multi_journey_geojson: ["🗺️", "Lấy hành trình nhiều tàu"],
+    compare_journeys: ["📊", "So sánh quãng đường nhiều tàu"],
+    get_dark_gaps: ["🛰️", "Tra cứu mất tín hiệu AIS"],
+    list_vessels_by_type: ["🚢", "Lọc tàu theo loại"],
+  };
+
+  function renderMarkdown(text) {
+    const html = marked.parse(text || "", { breaks: true });
+    return DOMPurify.sanitize(html);
+  }
 
   function initMap() {
     map = L.map('map').setView([13, 110], 5); // trung tam vung du lieu 102-118E, 6-23N
@@ -85,7 +135,7 @@
     list.innerHTML = '';
     convs.forEach((c) => {
       const li = document.createElement('li');
-      li.textContent = c.title || `Hội thoại ${c.id.slice(0, 8)}`;
+      li.textContent = c.title || 'Cuộc trò chuyện mới';
       li.className = c.id === currentConversationId ? 'active' : '';
       li.onclick = () => openConversation(c.id);
       list.appendChild(li);
@@ -107,33 +157,115 @@
     const res = await fetch(`/conversations/${id}/messages`);
     const messages = await res.json();
     messages.forEach((m) => {
-      if (m.role === 'user' || (m.role === 'assistant' && m.content)) {
-        appendMessage(m.role, m.content);
+      if (m.role === 'user') {
+        appendMessage('user', m.content);
+      } else if (m.role === 'assistant' && m.content) {
+        const div = appendMessage('assistant', '');
+        div.innerHTML = renderMarkdown(m.content);
       }
     });
     await loadConversations();
   }
 
+  function scrollToBottom() {
+    const box = document.getElementById('messages');
+    box.scrollTop = box.scrollHeight;
+  }
+
+  // role: 'user' | 'assistant' -> bubble don gian (dung cho lich su cu va
+  // tin nhan nguoi dung). Tra ve div de caller tu dien noi dung.
   function appendMessage(role, text) {
     const box = document.getElementById('messages');
+    const turn = document.createElement('div');
+    turn.className = `turn ${role}-turn`;
     const div = document.createElement('div');
     div.className = `msg ${role}`;
     div.textContent = text;
-    box.appendChild(div);
-    box.scrollTop = box.scrollHeight;
+    turn.appendChild(div);
+    box.appendChild(turn);
+    scrollToBottom();
     return div;
+  }
+
+  function appendError(message) {
+    const box = document.getElementById('messages');
+    const div = document.createElement('div');
+    div.className = 'msg error';
+    div.textContent = `⚠️ ${message}`;
+    box.appendChild(div);
+    scrollToBottom();
+  }
+
+  // Tao 1 luot tra loi moi: khoi "trace" (qua trinh xu ly, gom cac tool_call)
+  // + bubble assistant rieng, nam chung trong 1 "turn" de dinh dang giong 1
+  // luot hoi-dap duy nhat thay vi nhieu bubble roi rac nhu truoc.
+  function startAssistantTurn() {
+    const box = document.getElementById('messages');
+    const turn = document.createElement('div');
+    turn.className = 'turn assistant-turn';
+
+    const trace = document.createElement('div');
+    trace.className = 'trace';
+    trace.style.display = 'none';
+    const summary = document.createElement('div');
+    summary.className = 'trace-summary';
+    summary.innerHTML = '<span class="chevron">▶</span><span class="label">Đang xử lý…</span>';
+    const steps = document.createElement('div');
+    steps.className = 'trace-steps';
+    summary.onclick = () => trace.classList.toggle('expanded');
+    trace.appendChild(summary);
+    trace.appendChild(steps);
+
+    const assistantDiv = document.createElement('div');
+    assistantDiv.className = 'msg assistant empty';
+
+    turn.appendChild(trace);
+    turn.appendChild(assistantDiv);
+    box.appendChild(turn);
+    scrollToBottom();
+
+    return { trace, summary, steps, assistantDiv, stepCount: 0, rawText: '' };
+  }
+
+  function addTraceStep(state, name, args) {
+    const [icon, label] = TOOL_LABELS[name] || ['🔧', name];
+    state.stepCount += 1;
+    state.trace.style.display = '';
+    state.summary.querySelector('.label').textContent =
+      `Đã dùng ${state.stepCount} bước tra cứu dữ liệu`;
+
+    const step = document.createElement('div');
+    step.className = 'trace-step';
+    const argsText = Object.keys(args || {}).length ? JSON.stringify(args) : '';
+    step.innerHTML = `<span>${icon}</span><span>${label}</span>` +
+      (argsText ? `<span class="args">${argsText}</span>` : '');
+    state.steps.appendChild(step);
+    scrollToBottom();
+  }
+
+  function finalizeTrace(state) {
+    // Tu dong thu gon khoi trace khi da co cau tra loi, nguoi dung van bam
+    // vao de mo lai xem lai da goi tool nao (minh bach nhung khong choan cho).
+    state.trace.classList.remove('expanded');
+    state.summary.querySelector('.chevron').textContent = '▶';
   }
 
   async function sendMessage(text) {
     if (!currentConversationId) await createConversation();
     appendMessage('user', text);
-    const assistantDiv = appendMessage('assistant', '');
+    const state = startAssistantTurn();
 
-    const res = await fetch(`/conversations/${currentConversationId}/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text }),
-    });
+    let res;
+    try {
+      res = await fetch(`/conversations/${currentConversationId}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text }),
+      });
+    } catch (e) {
+      appendError('Không kết nối được tới server.');
+      return;
+    }
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -148,13 +280,13 @@
       while ((idx = buffer.indexOf('\n\n')) !== -1) {
         const block = buffer.slice(0, idx);
         buffer = buffer.slice(idx + 2);
-        handleSseBlock(block, assistantDiv);
+        handleSseBlock(block, state);
       }
     }
     await loadConversations();
   }
 
-  function handleSseBlock(block, assistantDiv) {
+  function handleSseBlock(block, state) {
     const lines = block.split('\n');
     const eventLine = lines.find((l) => l.startsWith('event: '));
     const dataLine = lines.find((l) => l.startsWith('data: '));
@@ -164,15 +296,28 @@
     const data = JSON.parse(dataLine.slice('data: '.length));
 
     if (eventType === 'token') {
-      assistantDiv.textContent += data;
+      if (state.rawText === '') finalizeTrace(state);
+      state.rawText += data;
+      state.assistantDiv.classList.remove('empty');
+      state.assistantDiv.innerHTML = renderMarkdown(state.rawText);
     } else if (eventType === 'tool_call') {
-      appendMessage('tool', `🔧 ${data.name}(${JSON.stringify(data.arguments)})`);
+      addTraceStep(state, data.name, data.arguments);
     } else if (eventType === 'data' && data.type === 'geojson') {
       renderGeojson(data.geojson);
+    } else if (eventType === 'done') {
+      finalizeTrace(state);
+      state.assistantDiv.classList.remove('empty');
+      if (data.answer) {
+        state.rawText = data.answer;
+        state.assistantDiv.innerHTML = renderMarkdown(state.rawText);
+      }
     } else if (eventType === 'error') {
-      appendMessage('error', `⚠️ ${data.message}`);
+      finalizeTrace(state);
+      state.assistantDiv.classList.remove('empty');
+      if (!state.rawText) state.assistantDiv.remove();
+      appendError(data.message);
     }
-    document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
+    scrollToBottom();
   }
 
   document.getElementById('new-conv-btn').onclick = createConversation;

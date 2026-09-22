@@ -68,10 +68,13 @@ def _sse_format(event: str, data: Any) -> str:
 
 @router.post("/conversations/{conversation_id}/chat")
 def chat(conversation_id: UUID, body: ChatRequest) -> StreamingResponse:
-    if store.get_conversation(conversation_id) is None:
+    conv = store.get_conversation(conversation_id)
+    if conv is None:
         raise HTTPException(status_code=404, detail="Khong tim thay hoi thoai")
 
     store.append_message(conversation_id, "user", body.message)  # luu truoc khi goi LLM, tranh mat cau hoi neu LLM loi
+    if not conv["title"]:  # tin nhan dau tien: dat tieu de kieu ChatGPT thay vi "hoi thoai moi" mai mai
+        store.set_conversation_title(conversation_id, store.derive_title_from_message(body.message))
     context_messages = build_llm_context(conversation_id, body.message)
     messages: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages.extend(context_messages)

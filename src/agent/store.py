@@ -10,6 +10,30 @@ from psycopg2.extras import Json
 from src.db import get_cursor
 
 
+MAX_TITLE_LENGTH = 60
+
+
+def derive_title_from_message(text: str) -> str:
+    """Tieu de hoi thoai kieu ChatGPT: cat ngan tin nhan dau tien cua nguoi
+    dung (khong goi LLM - re, khong phu thuoc quota API con)."""
+    text = " ".join(text.split())
+    if len(text) <= MAX_TITLE_LENGTH:
+        return text
+    truncated = text[:MAX_TITLE_LENGTH]
+    last_space = truncated.rfind(" ")
+    if last_space > 20:  # tranh cat qua ngan neu tu dau tien da dai
+        truncated = truncated[:last_space]
+    return truncated + "…"
+
+
+def set_conversation_title(conversation_id: UUID, title: str) -> None:
+    with get_cursor() as cur:
+        cur.execute(
+            "UPDATE conversations SET title = %(title)s WHERE id = %(id)s",
+            {"title": title, "id": str(conversation_id)},
+        )
+
+
 def create_conversation(title: str | None = None) -> dict[str, Any]:
     with get_cursor() as cur:
         cur.execute(

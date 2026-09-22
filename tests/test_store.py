@@ -8,9 +8,11 @@ from src.agent.store import (
     append_message,
     create_conversation,
     delete_conversation,
+    derive_title_from_message,
     get_conversation,
     list_conversations,
     list_messages,
+    set_conversation_title,
     to_llm_message,
 )
 
@@ -95,6 +97,33 @@ def test_interleaved_conversations_do_not_leak_messages_into_each_other():
 
     delete_conversation(conv_a["id"])
     delete_conversation(conv_b["id"])
+
+
+def test_derive_title_from_message_returns_short_message_unchanged():
+    assert derive_title_from_message("Cho toi thong tin ve tau KOTA GAYA") == "Cho toi thong tin ve tau KOTA GAYA"
+
+
+def test_derive_title_from_message_collapses_whitespace():
+    assert derive_title_from_message("  Tau   nao   mat  \n tin hieu  ") == "Tau nao mat tin hieu"
+
+
+def test_derive_title_from_message_truncates_long_message_at_word_boundary():
+    text = "Cho toi biet chi tiet ve hanh trinh cua tau EVER VIVA trong ba ngay gan day nhat cua du lieu he thong"
+    title = derive_title_from_message(text)
+    assert len(title) <= 61  # MAX_TITLE_LENGTH + dau "…"
+    assert title.endswith("…")
+    assert not title[:-1].endswith(" ")  # cat dung ranh gioi tu, khong con khoang trang thua
+
+
+def test_set_conversation_title_updates_existing_conversation():
+    conv = create_conversation()
+    assert conv["title"] is None
+
+    set_conversation_title(conv["id"], "Tieu de moi")
+    fetched = get_conversation(conv["id"])
+    assert fetched["title"] == "Tieu de moi"
+
+    delete_conversation(conv["id"])
 
 
 def test_to_llm_message_formats_by_role():
