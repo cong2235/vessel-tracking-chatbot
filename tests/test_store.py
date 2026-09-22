@@ -72,6 +72,31 @@ def test_delete_conversation_unknown_returns_false():
     assert delete_conversation("00000000-0000-0000-0000-000000000000") is False
 
 
+def test_interleaved_conversations_do_not_leak_messages_into_each_other():
+    """R2: nhieu hoi thoai song song khong duoc lan ngu canh nhau - ghi xen
+    ke giua 2 conversation, moi ben chi doc dung message cua chinh no."""
+    conv_a = create_conversation(title="hoi thoai A")
+    conv_b = create_conversation(title="hoi thoai B")
+
+    append_message(conv_a["id"], "user", content="A: cau hoi 1")
+    append_message(conv_b["id"], "user", content="B: cau hoi 1")
+    append_message(conv_a["id"], "assistant", content="A: tra loi 1")
+    append_message(conv_b["id"], "assistant", content="B: tra loi 1")
+    append_message(conv_a["id"], "user", content="A: cau hoi 2")
+    append_message(conv_b["id"], "user", content="B: cau hoi 2")
+
+    rows_a = list_messages(conv_a["id"])
+    rows_b = list_messages(conv_b["id"])
+
+    assert [r["content"] for r in rows_a] == ["A: cau hoi 1", "A: tra loi 1", "A: cau hoi 2"]
+    assert [r["content"] for r in rows_b] == ["B: cau hoi 1", "B: tra loi 1", "B: cau hoi 2"]
+    assert not any("B:" in (r["content"] or "") for r in rows_a)
+    assert not any("A:" in (r["content"] or "") for r in rows_b)
+
+    delete_conversation(conv_a["id"])
+    delete_conversation(conv_b["id"])
+
+
 def test_to_llm_message_formats_by_role():
     user_row = {"role": "user", "content": "hi", "tool_call_id": None, "tool_calls_json": None}
     assert to_llm_message(user_row) == {"role": "user", "content": "hi"}
