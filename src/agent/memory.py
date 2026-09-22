@@ -7,6 +7,8 @@ Ngưỡng cửa sổ đếm theo số message, không phải số token hay số
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from typing import Any
 from uuid import UUID
 
@@ -43,6 +45,27 @@ MEMORY_NOTE_PREFIX = (
     "nham sang chu de/tau dang noi o cac luot gan nhat:\n"
 )
 
+# Cau dang "ghi nho giup toi...", "nho giup...", "hay nho rang..." -> luu
+# thanh 1 fact rieng, khong qua buoc tom tat LLM (xem _extract_pinned_fact).
+# So khop tren ban KHONG DAU de bat ca 2 dang co dau ("nhớ") lan khong dau
+# ("nho") nguoi dung/model co the dung.
+_REMEMBER_TRIGGER_RE = re.compile(r"ghi nho|nho giup|nho ho|hay nho|nho rang")
+
+
+def _strip_diacritics(text: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", text)
+    without_marks = "".join(c for c in decomposed if not unicodedata.combining(c))
+    return without_marks.replace("đ", "d").replace("Đ", "D")
+
+
+def _extract_pinned_fact(row: dict[str, Any]) -> str | None:
+    if row["role"] != "user" or not row["content"]:
+        return None
+    normalized = _strip_diacritics(row["content"]).lower()
+    if _REMEMBER_TRIGGER_RE.search(normalized):
+        return row["content"]
+    return None
+
 
 def build_llm_context(conversation_id: UUID, latest_user_message: str) -> list[dict[str, Any]]:
     window_size = get_context_window_turns()
@@ -56,14 +79,18 @@ def build_llm_context(conversation_id: UUID, latest_user_message: str) -> list[d
     _maybe_summarize_new_older_messages(conversation_id, older_rows)
 
     context: list[dict[str, Any]] = []
+    pinned_facts = _retrieve_pinned_facts(conversation_id)
+    pinned_ids = {c["id"] for c in pinned_facts}
     relevant_chunks = _retrieve_relevant_memory(conversation_id, latest_user_message)
-    if relevant_chunks:
-        memory_text = "\n".join(f"- {c['content_summary']}" for c in relevant_chunks)
+    all_chunks = pinned_facts + [c for c in relevant_chunks if c["id"] not in pinned_ids]
+
+    if all_chunks:
+        memory_text = "\n".join(f"- {c['content_summary']}" for c in all_chunks)
         context.append({"role": "system", "content": MEMORY_NOTE_PREFIX + memory_text})
         logger.info(
-            "Injected %d memory chunk(s) for conversation %s: %s",
-            len(relevant_chunks), conversation_id,
-            [c["content_summary"][:80] for c in relevant_chunks],
+            "Injected %d memory chunk(s) (%d pinned) for conversation %s: %s",
+            len(all_chunks), len(pinned_facts), conversation_id,
+            [c["content_summary"][:80] for c in all_chunks],
         )
 
     context.extend(store.to_llm_message(r) for r in recent_rows)
@@ -87,6 +114,11 @@ def _maybe_summarize_new_older_messages(conversation_id: UUID, older_rows: list[
     new_rows = [r for r in older_rows if r["id"] > last_summarized_id]
     if not new_rows:
         return
+
+    for row in new_rows:
+        fact_text = _extract_pinned_fact(row)
+        if fact_text:
+            _insert_pinned_fact(conversation_id, fact_text, row["id"])
 
     text = _format_rows_for_summary(new_rows)
     if not text.strip():
@@ -116,6 +148,23 @@ def _maybe_summarize_new_older_messages(conversation_id: UUID, older_rows: list[
     )
 
 
+def _insert_pinned_fact(conversation_id: UUID, fact_text: str, source_msg_id: int) -> None:
+    embedding = embed_text(fact_text)
+    with get_cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO memory_chunks
+                (conversation_id, content_summary, source_msg_from_id, source_msg_to_id, embedding, is_pinned)
+            VALUES (%(cid)s, %(summary)s, %(mid)s, %(mid)s, %(embedding)s, true)
+            """,
+            {"cid": str(conversation_id), "summary": fact_text, "mid": source_msg_id, "embedding": embedding},
+        )
+    logger.info(
+        "Pinned explicit fact for conversation %s (source msg id %s): %s",
+        conversation_id, source_msg_id, fact_text[:80],
+    )
+
+
 def _get_last_summarized_message_id(conversation_id: UUID) -> int:
     with get_cursor() as cur:
         cur.execute(
@@ -141,6 +190,22 @@ def _summarize(text: str) -> str:
     return response.content or text[:500]
 
 
+def _retrieve_pinned_facts(conversation_id: UUID) -> list[dict[str, Any]]:
+    """Fact tuong minh ("ghi nho giup toi...") - luon tra ve, khong loc theo
+    similarity/rerank (xem _extract_pinned_fact va db/schema.sql)."""
+    with get_cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, content_summary, source_msg_from_id, source_msg_to_id
+            FROM memory_chunks
+            WHERE conversation_id = %(cid)s AND is_pinned = true
+            ORDER BY id
+            """,
+            {"cid": str(conversation_id)},
+        )
+        return cur.fetchall()
+
+
 def _retrieve_relevant_memory(
     conversation_id: UUID, query_text: str, top_k: int = MEMORY_RETRIEVAL_TOP_K
 ) -> list[dict[str, Any]]:
@@ -148,10 +213,10 @@ def _retrieve_relevant_memory(
     with get_cursor() as cur:
         cur.execute(
             """
-            SELECT content_summary, source_msg_from_id, source_msg_to_id,
+            SELECT id, content_summary, source_msg_from_id, source_msg_to_id,
                    1 - (embedding <=> %(q)s::vector) AS similarity
             FROM memory_chunks
-            WHERE conversation_id = %(cid)s
+            WHERE conversation_id = %(cid)s AND is_pinned = false
             ORDER BY embedding <=> %(q)s::vector
             LIMIT %(pool)s
             """,
