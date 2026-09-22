@@ -3,16 +3,16 @@
   Luot 1: PASS (khop: ['563152500'])
   Luot 2: PASS (khop: ['PACIFIC INTERNATIONAL LINES'])
   Luot 3: PASS (khop: ['KOTA LAYANG', 'KOTA NAZIM', 'KOTA NEKAD', 'KOTA RATU', 'KOTA SEGAR', 'KOTA SELAMAT'])
-  Luot 4: FAIL (khop: KHONG CO)
+  Luot 4: PASS (khop: ['21.74', '114.02'])
 
 === scenario_2.md ===
   Luot 1: PASS (khop: ['447'])
-  Luot 2: PASS (khop: ['2026-09-12'])
-  Luot 3: FAIL (khop: KHONG CO)
+  Luot 2: PASS (khop: ['12/09'])
+  Luot 3: PASS (khop: ['dài hơn'])
 
 === scenario_3.md ===
-  Luot 12: FAIL (khop: KHONG CO)
-  Luot 13: FAIL (khop: KHONG CO)
+  Luot 12: PASS (khop: ['HS-2026-117'])
+  Luot 13: PASS (khop: ['18.4', '117.6', '23:50'])
 
 === scenario_4.md ===
   Luot 1: PASS (khop: ['WORLD SPIRIT'])
@@ -22,4 +22,4 @@
 === scenario_5.md ===
   Luot 1: PASS (khop: ['EVER'])
 
-TONG: 9/13 (69%)
+TONG: 13/13 (100%)
