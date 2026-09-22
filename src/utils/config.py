@@ -67,7 +67,7 @@ def get_embedding_model() -> str:
 
 
 def get_reranker_enabled() -> bool:
-    return os.environ.get("RERANKER_ENABLED", "false").lower() == "true"
+    return os.environ.get("RERANKER_ENABLED", "true").lower() == "true"
 
 
 def get_reranker_base_url() -> str:
