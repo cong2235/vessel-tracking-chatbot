@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from src.tools.journeys import get_journey, get_multi_journey_geojson
+from src.tools.journeys import compare_journeys, get_journey, get_multi_journey_geojson
 
 EVER_VIVA_VESSEL_ID = "01926a45-3730-7381-9acb-074f84e2e999"
 KOTA_GAYA_VESSEL_ID = "014e47c3-9588-7914-9a71-4af09b458f02"
@@ -76,3 +76,48 @@ def test_get_multi_journey_geojson_caps_vessel_count():
     too_many = [EVER_VIVA_VESSEL_ID] * (MAX_VESSELS_PER_REQUEST + 10)
     result = get_multi_journey_geojson(too_many, "2026-09-10T00:00:00Z", "2026-09-12T23:59:59Z")
     assert result["num_vessels"] <= 1  # deduped by GROUP BY vessel_id du list dai
+    assert result["total_vessels_requested"] == MAX_VESSELS_PER_REQUEST + 10
+    assert result["has_more"] is True  # con 10 id chua duoc xu ly o trang 1
+
+
+def test_get_multi_journey_geojson_pagination_covers_all_vessels_across_pages():
+    all_ids = [EVER_VIVA_VESSEL_ID, KOTA_GAYA_VESSEL_ID]
+
+    page1 = get_multi_journey_geojson(
+        all_ids, "2026-09-10T00:00:00Z", "2026-09-12T23:59:59Z", page=1, page_size=1
+    )
+    assert page1["num_vessels"] == 1
+    assert page1["has_more"] is True
+    assert page1["vessel_names"] == ["EVER VIVA"]
+
+    page2 = get_multi_journey_geojson(
+        all_ids, "2026-09-10T00:00:00Z", "2026-09-12T23:59:59Z", page=2, page_size=1
+    )
+    assert page2["num_vessels"] == 1
+    assert page2["has_more"] is False
+    assert page2["vessel_names"] == ["KOTA GAYA"]
+
+    page3 = get_multi_journey_geojson(
+        all_ids, "2026-09-10T00:00:00Z", "2026-09-12T23:59:59Z", page=3, page_size=1
+    )
+    assert page3["num_vessels"] == 0
+    assert page3["has_more"] is False
+
+
+def test_compare_journeys_sorts_by_distance_descending():
+    result = compare_journeys(
+        [EVER_VIVA_VESSEL_ID, KOTA_GAYA_VESSEL_ID],
+        "2026-09-10T00:00:00Z",
+        "2026-09-12T23:59:59Z",
+    )
+    assert result["num_vessels"] == 2
+    distances = [v["distance_nm"] for v in result["vessels"]]
+    assert distances == sorted(distances, reverse=True)
+    assert result["farthest"] == result["vessels"][0]
+    assert result["shortest"] == result["vessels"][-1]
+    assert {v["shipname"] for v in result["vessels"]} == {"EVER VIVA", "KOTA GAYA"}
+
+
+def test_compare_journeys_empty_list_returns_no_data():
+    result = compare_journeys([], "2026-09-10T00:00:00Z", "2026-09-12T23:59:59Z")
+    assert result == {"num_vessels": 0, "vessels": [], "farthest": None, "shortest": None}

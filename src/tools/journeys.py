@@ -87,15 +87,42 @@ def get_journey(vessel_id: str, start_ts: str, end_ts: str) -> dict[str, Any]:
     }
 
 
-def get_multi_journey_geojson(vessel_ids: list[str], start_ts: str, end_ts: str) -> dict[str, Any]:
+def get_multi_journey_geojson(
+    vessel_ids: list[str],
+    start_ts: str,
+    end_ts: str,
+    page: int = 1,
+    page_size: int = MAX_VESSELS_PER_REQUEST,
+) -> dict[str, Any]:
     """N3: hanh trinh cua nhieu tau cung luc. LLM chi nen doc cac truong
     ngoai "geojson" (num_vessels/total_points/bbox/vessel_names) - geojson
-    day du duoc tach rieng sang su kien `data` cho FE, khong di qua model."""
-    vessel_ids = vessel_ids[:MAX_VESSELS_PER_REQUEST]
-    if not vessel_ids:
-        return {"num_vessels": 0, "total_points": 0, "bbox": None, "vessel_names": [], "geojson": None}
+    day du duoc tach rieng sang su kien `data` cho FE, khong di qua model.
 
-    params = {"vids": vessel_ids, "start": start_ts, "end": end_ts, "tol": SIMPLIFY_TOLERANCE_DEGREES}
+    Phan trang THAT tren danh sach vessel_ids dau vao (khong chi cat cung
+    lay 50 tau dau): page/page_size chon 1 lat cat cua vessel_ids, has_more
+    bao con trang tiep theo hay khong - LLM goi lai voi page+1 de lay het
+    khi vessel_ids vuot MAX_VESSELS_PER_REQUEST (vd. 628 tau Cargo)."""
+    page = max(1, page)
+    page_size = min(max(1, page_size), MAX_VESSELS_PER_REQUEST)
+    total_vessels_requested = len(vessel_ids)
+    start_idx = (page - 1) * page_size
+    page_vessel_ids = vessel_ids[start_idx : start_idx + page_size]
+    has_more = start_idx + page_size < total_vessels_requested
+
+    if not page_vessel_ids:
+        return {
+            "num_vessels": 0,
+            "total_points": 0,
+            "bbox": None,
+            "vessel_names": [],
+            "geojson": None,
+            "page": page,
+            "page_size": page_size,
+            "total_vessels_requested": total_vessels_requested,
+            "has_more": False,
+        }
+
+    params = {"vids": page_vessel_ids, "start": start_ts, "end": end_ts, "tol": SIMPLIFY_TOLERANCE_DEGREES}
 
     with get_cursor() as cur:
         cur.execute(
@@ -147,4 +174,59 @@ def get_multi_journey_geojson(vessel_ids: list[str], start_ts: str, end_ts: str)
         ),
         "vessel_names": [r["shipname"] for r in rows],
         "geojson": {"type": "FeatureCollection", "features": features} if features else None,
+        "page": page,
+        "page_size": page_size,
+        "total_vessels_requested": total_vessels_requested,
+        "has_more": has_more,
+    }
+
+
+def compare_journeys(vessel_ids: list[str], start_ts: str, end_ts: str) -> dict[str, Any]:
+    """So sanh quang duong/toc do nhieu tau trong 1 khoang thoi gian. Tinh va
+    sap xep NGAY TRONG SQL (1 lan goi) - tranh LLM phai tu lap get_journey
+    cho tung tau roi tu so sanh (vua cham MAX_TOOL_ITERATIONS voi nhieu tau,
+    vua de tinh sai/quen tau khi so sanh thu cong qua nhieu luot)."""
+    vessel_ids = vessel_ids[:MAX_VESSELS_PER_REQUEST]
+    if not vessel_ids:
+        return {"num_vessels": 0, "vessels": [], "farthest": None, "shortest": None}
+
+    params = {"vids": vessel_ids, "start": start_ts, "end": end_ts}
+
+    with get_cursor() as cur:
+        cur.execute(
+            """
+            SELECT a.vessel_id, v.shipname, count(*) AS num_points,
+                   min(a.event_ts) AS first_ts, max(a.event_ts) AS last_ts,
+                   ST_Length(ST_MakeLine(a.geom ORDER BY a.event_ts)::geography) / 1852.0
+                       AS distance_nm
+            FROM ais_positions a
+            JOIN vessels v ON v.vessel_id = a.vessel_id
+            WHERE a.vessel_id = ANY(%(vids)s::uuid[]) AND a.event_ts BETWEEN %(start)s AND %(end)s
+            GROUP BY a.vessel_id, v.shipname
+            HAVING count(*) >= 2
+            ORDER BY distance_nm DESC
+            """,
+            params,
+        )
+        rows = cur.fetchall()
+
+    vessels = []
+    for r in rows:
+        duration_hours = (r["last_ts"] - r["first_ts"]).total_seconds() / 3600
+        avg_speed_knots = r["distance_nm"] / duration_hours if duration_hours > 0 else None
+        vessels.append(
+            {
+                "vessel_id": str(r["vessel_id"]),
+                "shipname": r["shipname"],
+                "num_points": r["num_points"],
+                "distance_nm": r["distance_nm"],
+                "avg_speed_knots": avg_speed_knots,
+            }
+        )
+
+    return {
+        "num_vessels": len(vessels),
+        "vessels": vessels,  # da sap xep distance_nm giam dan
+        "farthest": vessels[0] if vessels else None,
+        "shortest": vessels[-1] if vessels else None,
     }
