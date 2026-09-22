@@ -136,6 +136,26 @@ def test_chat_streams_events_and_persists_messages(monkeypatch):
     store.delete_conversation(conv["id"])
 
 
+def test_chat_sets_title_from_first_user_message_but_not_subsequent_ones(monkeypatch):
+    response = LLMResponse(content="OK.", tool_calls=[], raw_assistant_message=_assistant_message("OK."))
+    monkeypatch.setattr(
+        "src.agent.agent.chat_stream", lambda messages, tools=None: _fake_stream("OK.", response)(messages, tools)
+    )
+
+    conv = store.create_conversation()
+    assert conv["title"] is None
+
+    client.post(f"/conversations/{conv['id']}/chat", json={"message": "Tau nao mat tin hieu AIS lau nhat?"})
+    after_first = store.get_conversation(conv["id"])
+    assert after_first["title"] == "Tau nao mat tin hieu AIS lau nhat?"
+
+    client.post(f"/conversations/{conv['id']}/chat", json={"message": "Cau hoi tiep theo khac han"})
+    after_second = store.get_conversation(conv["id"])
+    assert after_second["title"] == "Tau nao mat tin hieu AIS lau nhat?"  # khong bi ghi de
+
+    store.delete_conversation(conv["id"])
+
+
 def test_chat_llm_error_persists_user_message_and_streams_error_event(monkeypatch):
     def broken_stream(messages, tools=None):
         raise ConnectionError("khong goi duoc LLM")
