@@ -152,6 +152,11 @@ CREATE INDEX IF NOT EXISTS idx_messages_conversation
     ON messages (conversation_id, created_at);
 
 -- vector(1024) phai khop dung so chieu EMBEDDING_MODEL (mac dinh bge-m3).
+-- is_pinned: fact tuong minh nguoi dung yeu cau "ghi nho giup toi..." - luu
+-- rieng, KHONG gop vao ban tom tat ngu nghia chung (LLM tom tat co the bo
+-- sot chi tiet khi nen chung voi noi dung khac trong cung 1 doan cu). Luon
+-- duoc chen vao context bat ke embedding similarity/rerank (xem
+-- src/agent/memory.py::_retrieve_pinned_facts).
 CREATE TABLE IF NOT EXISTS memory_chunks (
     id                  bigserial PRIMARY KEY,
     conversation_id     uuid NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
@@ -159,8 +164,10 @@ CREATE TABLE IF NOT EXISTS memory_chunks (
     source_msg_from_id  bigint,
     source_msg_to_id    bigint,
     embedding           vector(1024),
+    is_pinned           boolean NOT NULL DEFAULT false,
     created_at          timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE memory_chunks ADD COLUMN IF NOT EXISTS is_pinned boolean NOT NULL DEFAULT false;  -- migration an toan cho DB da co bang
 
 -- migration an toan neu doi so chieu embedding (memory_chunks tai tao duoc)
 DROP INDEX IF EXISTS idx_memory_chunks_embedding;

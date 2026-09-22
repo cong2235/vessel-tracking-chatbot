@@ -12,6 +12,8 @@ from unittest.mock import patch
 from src.agent import store
 from src.agent.memory import (
     MEMORY_MIN_SIMILARITY,
+    _extract_pinned_fact,
+    _retrieve_pinned_facts,
     _retrieve_relevant_memory,
     _safe_window_start,
     build_llm_context,
@@ -244,6 +246,76 @@ def test_retrieve_relevant_memory_falls_back_when_reranker_fails(monkeypatch):
 
     # Khong crash - fallback ve thu tu embedding similarity, van tra ve top_k
     assert len(results) == 2
+
+    store.delete_conversation(conv["id"])
+
+
+def test_extract_pinned_fact_detects_remember_trigger_with_and_without_diacritics():
+    assert _extract_pinned_fact(
+        {"role": "user", "content": "Ghi nho giup toi: toi theo doi tau MSC MANYA."}
+    )
+    assert _extract_pinned_fact(
+        {"role": "user", "content": "Bạn hãy nhớ rằng tôi phụ trách hồ sơ HS-2026-117."}
+    )
+    assert _extract_pinned_fact({"role": "user", "content": "Tau nay toc do bao nhieu?"}) is None
+    assert _extract_pinned_fact({"role": "assistant", "content": "Ghi nho giup toi X"}) is None
+
+
+def test_maybe_summarize_pins_explicit_remember_fact_as_separate_chunk(monkeypatch):
+    """Cau 'ghi nho giup toi...' phai duoc luu thanh 1 chunk rieng, is_pinned,
+    KHONG chi gop chung vao ban tom tat LLM co the bo sot chi tiet."""
+    monkeypatch.setenv("CONTEXT_WINDOW_TURNS", "2")
+    conv = store.create_conversation()
+    store.append_message(conv["id"], "user", "Ghi nho giup toi: toi theo doi tau MSC MANYA, ho so HS-2026-117.")
+    store.append_message(conv["id"], "assistant", "Da ghi nho.")
+    for i in range(4):
+        store.append_message(conv["id"], "user", f"cau hoi phu {i}")
+        store.append_message(conv["id"], "assistant", f"tra loi phu {i}")
+
+    fake_summary_response = LLMResponse(content="tom tat khong nhac ho so", tool_calls=[])
+    with patch("src.agent.memory.chat_once", return_value=fake_summary_response), patch(
+        "src.agent.memory.embed_text", return_value=_unit_vector(0)
+    ):
+        build_llm_context(conv["id"], "cau hoi moi nhat")
+
+    pinned = _retrieve_pinned_facts(conv["id"])
+    assert len(pinned) == 1
+    assert "HS-2026-117" in pinned[0]["content_summary"]
+
+    store.delete_conversation(conv["id"])
+
+
+def test_build_llm_context_always_includes_pinned_fact_even_for_unrelated_query(monkeypatch):
+    """Fact da pin phai duoc chen vao context bat ke embedding similarity
+    voi cau hoi hien tai co vuot nguong hay khong (khac voi chunk tom tat
+    thuong, bi loc boi MEMORY_MIN_SIMILARITY)."""
+    monkeypatch.setenv("CONTEXT_WINDOW_TURNS", "2")
+    conv = store.create_conversation()
+    with get_cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO memory_chunks
+                (conversation_id, content_summary, source_msg_from_id, source_msg_to_id, embedding, is_pinned)
+            VALUES (%(cid)s, 'ho so HS-2026-117, tau MSC MANYA', 1, 1, %(emb)s, true)
+            """,
+            {"cid": str(conv["id"]), "emb": _unit_vector(0)},
+        )
+    for i in range(3):
+        store.append_message(conv["id"], "user", f"cau hoi phu {i}")
+        store.append_message(conv["id"], "assistant", f"tra loi phu {i}")
+
+    # Query embedding truc giao voi vector cua pinned fact -> similarity ~0,
+    # se bi loc neu la chunk thuong, nhung pinned fact van phai xuat hien.
+    # 6 message + window=2 se trigger tom tat 4 message cu -> phai mock ca
+    # chat_once (khong chi embed_text), neu khong se goi LLM that.
+    fake_summary_response = LLMResponse(content="tom tat", tool_calls=[])
+    with patch("src.agent.memory.embed_text", return_value=_unit_vector(1)), patch(
+        "src.agent.memory.chat_once", return_value=fake_summary_response
+    ):
+        context = build_llm_context(conv["id"], "cau hoi khong lien quan")
+
+    memory_notes = [m["content"] for m in context if m["role"] == "system"]
+    assert any("HS-2026-117" in note for note in memory_notes)
 
     store.delete_conversation(conv["id"])
 
