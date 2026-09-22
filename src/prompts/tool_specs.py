@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from src.tools.dark_gaps import get_dark_gaps
-from src.tools.journeys import get_journey, get_multi_journey_geojson
+from src.tools.journeys import compare_journeys, get_journey, get_multi_journey_geojson
 from src.tools.ownership import get_company_vessels
 from src.tools.positions import get_position_at_time
 from src.tools.vessels import get_vessel_info, list_vessels_by_type, search_vessel
@@ -93,11 +93,14 @@ TOOL_SPECS: list[dict[str, Any]] = [
         "function": {
             "name": "get_position_at_time",
             "description": (
-                "Lay vi tri AIS cua 1 tau GAN 1 thoi diem cu the nhat (co the truoc "
-                "hoac sau thoi diem hoi vai phut/gio, tuy ban tin AIS gan nhat). Tra "
-                "ve kem do lech thoi gian va co is_stale=true neu diem gan nhat tim "
-                "duoc van cach qua xa thoi diem hoi — khi do phai noi ro voi nguoi "
-                "dung la khong co du lieu chinh xac gan thoi diem do."
+                "Lay vi tri (lat/lon) cua 1 tau tai 1 thoi diem cu the. Neu thoi diem "
+                "hoi nam GIUA 2 ban tin AIS, toa do se duoc NOI SUY TUYEN TINH giua 2 "
+                "diem do (is_interpolated=true) — day la uoc luong, khong phai ban "
+                "tin AIS that. Tra ve kem do lech thoi gian toi diem AIS that gan "
+                "nhat; co is_stale=true neu diem gan nhat van cach qua xa thoi diem "
+                "hoi — khi do phai noi ro voi nguoi dung la khong co du lieu chinh "
+                "xac gan thoi diem do. LUON neu ro toa do (lat/lon) trong cau tra "
+                "loi khi nguoi dung hoi ve vi tri."
             ),
             "parameters": {
                 "type": "object",
@@ -184,14 +187,18 @@ TOOL_SPECS: list[dict[str, Any]] = [
         "function": {
             "name": "get_multi_journey_geojson",
             "description": (
-                "Lay hanh trinh cua NHIEU tau cung luc (toi da 50 tau/lan) trong 1 "
-                "khoang thoi gian, de ve len ban do. LUON goi search_vessel/"
-                "get_company_vessels/list_vessels_by_type TRUOC de lay danh sach "
-                "vessel_id can thiet, roi moi goi tool nay. Ket qua tra ve chi co "
-                "SO LIEU TOM TAT (so tau, tong so diem, khung toa do bbox, danh "
-                "sach ten tau) — toa do chi tiet duoc gui thang cho giao dien ban "
-                "do, KHONG co trong ket qua ban nhan duoc, nen KHONG the va KHONG "
-                "can mo ta tung diem toa do trong cau tra loi."
+                "Lay hanh trinh cua NHIEU tau cung luc (toi da 50 tau/lan goi, co "
+                "PHAN TRANG that qua page/page_size) trong 1 khoang thoi gian, de "
+                "ve len ban do. LUON goi search_vessel/get_company_vessels/"
+                "list_vessels_by_type TRUOC de lay danh sach vessel_id can thiet, "
+                "roi moi goi tool nay. Ket qua tra ve chi co SO LIEU TOM TAT (so "
+                "tau, tong so diem, khung toa do bbox, danh sach ten tau) — toa do "
+                "chi tiet duoc gui thang cho giao dien ban do, KHONG co trong ket "
+                "qua ban nhan duoc, nen KHONG the va KHONG can mo ta tung diem toa "
+                "do trong cau tra loi. Neu vessel_ids dai hon 50 (vd. hang tram "
+                "tau), ket qua co has_more=true — neu can DAY DU, goi lai voi "
+                "page=page+1 (cung page_size) cho den khi has_more=false; neu chi "
+                "can uoc luong/mau dai dien thi khong bat buoc lay het."
             ),
             "parameters": {
                 "type": "object",
@@ -200,6 +207,37 @@ TOOL_SPECS: list[dict[str, Any]] = [
                         "type": "array",
                         "items": {"type": "string"},
                         "description": "Danh sach vessel_id (uuid) can lay hanh trinh",
+                    },
+                    "start_ts": {"type": "string", "description": "ISO-8601 UTC"},
+                    "end_ts": {"type": "string", "description": "ISO-8601 UTC"},
+                    "page": {"type": "integer", "description": "Mac dinh 1"},
+                    "page_size": {"type": "integer", "description": "Mac dinh va toi da 50"},
+                },
+                "required": ["vessel_ids", "start_ts", "end_ts"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "compare_journeys",
+            "description": (
+                "So sanh quang duong/toc do trung binh cua NHIEU tau (toi da 50) "
+                "trong cung 1 khoang thoi gian, DA SAP XEP san theo quang duong "
+                "giam dan (vessels[0] = di xa nhat, vessels[-1] = di gan nhat). "
+                "Dung khi can TRA LOI CAU HOI SO SANH ('tau nao di xa nhat', 'tau "
+                "nao cham nhat'...) — KHONG tu goi get_journey lap lai cho tung "
+                "tau roi tu so sanh, tool nay tinh va xep hang san trong 1 lan "
+                "goi. LUON goi search_vessel/get_company_vessels/"
+                "list_vessels_by_type TRUOC de lay danh sach vessel_id."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "vessel_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Danh sach vessel_id (uuid) can so sanh",
                     },
                     "start_ts": {"type": "string", "description": "ISO-8601 UTC"},
                     "end_ts": {"type": "string", "description": "ISO-8601 UTC"},
@@ -219,4 +257,5 @@ TOOL_REGISTRY: dict[str, Callable[..., Any]] = {
     "get_dark_gaps": get_dark_gaps,
     "list_vessels_by_type": list_vessels_by_type,
     "get_multi_journey_geojson": get_multi_journey_geojson,
+    "compare_journeys": compare_journeys,
 }
