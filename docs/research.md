@@ -153,6 +153,69 @@ prompt nhắc thêm quy tắc cụ thể đúng loại lỗi đã gặp (đã l�
 suy luận mạnh hơn** (`gpt-4.1`, `gpt-4o` đầy đủ, hoặc Claude Sonnet) nếu
 độ chính xác quan trọng hơn chi phí — chi tiết đánh đổi xem mục 9.
 
+### 1.5. Hướng phát triển tiếp theo cho 2 lỗi còn lại (ngoài phạm vi 7 ngày)
+
+Ghi rõ theo đúng tinh thần đề bài ("không cần hoàn thiện nhưng phải nêu rõ
+hướng giải quyết") — 2 lỗi dưới đây **chưa sửa dứt điểm được trong 7 ngày**,
+nhưng đã có hướng kỹ thuật cụ thể (không chỉ "chờ model tốt hơn"):
+
+**(a) Kịch bản 3 lượt 13 — nhầm `vessel_id` khi hành động dù vừa nói đúng
+tên tàu bằng lời (`results/scenario_3.md`, mục 6.4)**
+
+Hướng đề xuất: **mở rộng cơ chế pin fact từ "pin văn bản" sang "pin thực
+thể đã resolve"**. Hiện tại `_extract_pinned_fact` (`src/agent/memory.py`)
+chỉ lưu nguyên văn câu "ghi nhớ giúp tôi..." — model vẫn phải tự suy luận
+lại từ ngôn ngữ tự nhiên để biết "tàu đó" ứng với `vessel_id` nào ở lượt
+hành động. Thay vào đó:
+1. Ngay khi regex phát hiện câu "ghi nhớ" có nhắc tên tàu, gọi luôn
+   `search_vessel` để resolve tên đó thành `vessel_id` thật (dùng đúng
+   tool đã có, không thêm logic match tên mới).
+2. Lưu `vessel_id` này vào 1 cột riêng (vd. `memory_chunks.pinned_vessel_id`,
+   hoặc 1 bảng `conversation_focus_entity` tách biệt) — không chỉ lưu text.
+3. Ở mọi lượt sau trong cùng hội thoại, `build_llm_context` tự động chèn 1
+   dòng system tường minh: *"vessel_id đang được theo dõi trong hội thoại
+   này: `<uuid>` (tên: MSC MANYA)"* — biến bài toán "suy luận tàu đó là tàu
+   nào" (dễ sai, như đã thấy) thành 1 giá trị tra cứu sẵn, model chỉ cần
+   copy đúng UUID vào tham số tool thay vì tự suy luận lại từ lịch sử hội
+   thoại dài.
+
+Đánh đổi cần lường trước: cách này giả định "tại 1 thời điểm chỉ theo dõi 1
+thực thể chính" — nếu người dùng pin nhiều tàu khác nhau trong cùng hội
+thoại, cần mở rộng thành danh sách thay vì 1 giá trị đơn, và cần thêm logic
+chọn đúng entity nào đang được hỏi tới nếu có nhiều pin. Với đúng phạm vi
+kịch bản mẫu của đề bài (pin 1 tàu, hỏi lại đúng tàu đó), hướng đơn giản ở
+trên đã đủ giải quyết.
+
+**(b) Kịch bản 5 lượt 3 — chọn `list_vessels_by_type` thay vì
+`compare_journeys` cho câu hỏi tổng hợp theo loại tàu**
+
+3 hướng đề xuất, có thể kết hợp:
+1. **Few-shot cụ thể trong system prompt**: quy tắc 9 hiện tại chỉ nói
+   chung chung "dùng compare_journeys cho câu hỏi tổng hợp" — chưa có 1 ví
+   dụ cụ thể đúng dạng câu "còn toàn bộ tàu [loại] thì sao" (câu hỏi tiếp
+   nối, ẩn ý so sánh). Model theo kinh nghiệm chung bám few-shot cụ thể tốt
+   hơn rule trừu tượng — thêm 1 cặp câu hỏi/tool-call mẫu đúng dạng này vào
+   `SYSTEM_PROMPT` là thay đổi nhỏ, rẻ, chưa thử.
+2. **Guardrail ở tầng agent (code, không chỉ prompt)**: sau khi model gọi
+   tool, `src/agent/agent.py` có thể kiểm tra heuristic đơn giản — câu hỏi
+   gốc chứa từ khoá so sánh/tổng hợp ("tổng", "trung bình", "xa nhất",
+   "toàn bộ"...) mà tool vừa gọi là `list_vessels_by_type`/`get_journey`
+   (không phải `compare_journeys`) — thì tự động chèn thêm 1 message
+   `system` nhắc lại yêu cầu dùng đúng tool, buộc model gọi lại trước khi
+   trả lời cuối, thay vì để câu trả lời không tối ưu đi thẳng ra người
+   dùng. Đây là cách tiếp cận CÙNG triết lý với việc sửa R3 (không chỉ tin
+   vào prompt, thêm 1 lớp kiểm tra chắc chắn ở code) — chưa triển khai vì
+   cần thêm thời gian thiết kế điều kiện heuristic tránh false-positive
+   (chặn nhầm câu hỏi hợp lệ khác).
+3. **Thu hẹp bề mặt tool khi ngữ cảnh đang bàn hành trình**: cân nhắc bỏ
+   `list_vessels_by_type` khỏi danh sách tool khả dụng khi hội thoại đang
+   trong luồng hỏi về hành trình/so sánh (chỉ giữ lại khi câu hỏi thuần về
+   "liệt kê tàu theo loại", không liên quan hành trình) — giảm số lựa chọn
+   dễ gây nhầm lẫn. Cần thêm logic phân loại ý định câu hỏi trước khi quyết
+   định tập tool đưa vào request, chưa làm trong 7 ngày.
+4. **Dùng model suy luận mạnh hơn** — vẫn là đòn bẩy lớn nhất nếu độ chính
+   xác quan trọng hơn chi phí, xem mục 1.4 kết luận và mục 9.
+
 ## 2. Embedding
 
 ### 2.1. Các ứng viên đã cân nhắc
@@ -384,8 +447,10 @@ trước — đây là biện pháp giảm xác suất (prompt-level), không ph
 điểm, nhất quán với kết luận chung của toàn mục 6: **cơ chế nào cũng có
 trần độ tin cậy phụ thuộc vào năng lực suy luận của model đang dùng** — mô
 hình nhỏ/rẻ hơn (dù tool-calling format ổn định) vẫn có thể mắc lỗi liên
-kết ngữ cảnh mà mô hình có suy luận mạnh hơn ít gặp hơn. Xem mục 9 để biết
-đánh đổi khi cần độ tin cậy cao hơn.
+kết ngữ cảnh mà mô hình có suy luận mạnh hơn ít gặp hơn. **Hướng khắc phục
+kỹ thuật cụ thể (mở rộng pin fact sang pin thực thể đã resolve, chưa làm
+trong 7 ngày): mục 1.5(a)**. Xem thêm mục 9 để biết đánh đổi self-host khi
+cần độ tin cậy cao hơn.
 
 ## 7. Framework backend
 

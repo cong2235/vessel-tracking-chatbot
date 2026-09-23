@@ -15,7 +15,8 @@ quá trình so sánh 2 model, và các bug suy luận thật phát hiện khi đ
 LLM ở 2 câu hỏi khó nhất (so sánh/tổng hợp nhiều tàu, follow-up hành động
 sau khi nhớ lại — xem ghi chú trong `results/scenario_3.md`/`scenario_5.md`
 và `docs/research.md` mục 1.4/6.4) — ghi nhận trung thực thay vì chỉ báo 1
-con số đẹp nhất.
+con số đẹp nhất. **Hướng khắc phục cụ thể cho 2 lỗi này (ngoài phạm vi 7
+ngày, chưa chỉ dừng ở "cần model mạnh hơn"): `docs/research.md` mục 1.5.**
 
 ## Cấu trúc thư mục
 
@@ -487,7 +488,7 @@ trong `results/scenario_3.md`/`scenario_5.md` thay vì chỉ báo cáo lần ch�
 |---|---|---|
 | R1 | Nạp dữ liệu + tầng truy vấn (tools, SQL tham số hoá, tìm tàu linh hoạt) | ✅ Xong, verify Ngày 2 |
 | R2 | API chat streaming SSE, quản lý hội thoại, nhiều hội thoại song song | ✅ Xong, verify Ngày 4 + live |
-| R3 | Lịch sử bền vững + follow-up + bộ nhớ dài hạn vector DB | ✅ Cơ chế kết hợp + pin fact tường minh — PASS ổn định ở phần nhắc lại bằng lời; ⚠️ còn 1 giới hạn suy luận chưa dứt điểm ở bước hành động ngay sau đó (xem `docs/research.md` mục 6.4) |
+| R3 | Lịch sử bền vững + follow-up + bộ nhớ dài hạn vector DB | ✅ Cơ chế kết hợp + pin fact tường minh — PASS ổn định ở phần nhắc lại bằng lời; ⚠️ còn 1 giới hạn suy luận chưa dứt điểm ở bước hành động ngay sau đó — nguyên nhân + hướng khắc phục cụ thể (mở rộng pin fact sang pin vessel_id đã resolve): `docs/research.md` mục 1.5(a)/6.4 |
 | R4 | Trả lời đúng dữ liệu thật, không bịa | ✅ Verify qua nhiều lần chạy 5 kịch bản mẫu với LLM thật (13–15/15 tuỳ lần chạy) |
 | N1 | UI chat đơn giản | ✅ `web/index.html` (đã viết lại: markdown, trace tool-call, giao diện tối); khuyến nghị tự kiểm tra trên trình duyệt thật trước khi bàn giao |
 | N2 | Bản đồ động theo câu hỏi, dữ liệu qua sự kiện có cấu trúc | ✅ Verify với LLM thật (sự kiện `data` mang GeoJSON + `summary`) |
