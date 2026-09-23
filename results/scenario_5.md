@@ -1,5 +1,21 @@
 # Kich ban 5 - Nhieu hanh trinh tren ban do (N3)
 
+> **GHI CHU SAU REVIEW (chua chay lai duoc, xem ly do ben duoi)**: Luot 3 o
+> transcript ben duoi la BANG CHUNG CUA 1 BUG THAT da tim thay khi soat lai
+> - model goi `list_vessels_by_type` + vai `get_position_at_time` mau roi
+> TU BIA ca bang so lieu tong hop ("~3.200 tau", "~5.200.000 nm" - trong
+> khi CA DATASET CHI CO 1.000 TAU), vi pham R4 ("khong bia du lieu").
+> Da sua tan goc: them `compare_journeys(ship_type_substring=...)` tinh SO
+> THAT tren toan bo tau khop truc tiep trong SQL (khong gioi han so luong,
+> khong can LLM tu uoc luong) + them kiem chung tu dong theo TOOL DA GOI
+> (khong chi noi dung cau tra loi) de bat duoc dung loai loi nay trong
+> tuong lai — xem `scripts/verify_results.py`, `docs/architecture.md` muc 7.
+> 96/96 unit test (bao gom test moi cho `compare_journeys` + ca 2 che do
+> loc) da PASS tren DB that. **Chua chay lai duoc kich ban nay qua LLM that
+> de lay transcript moi** vi tai khoan Cloudflare Workers AI dang dung da
+> het han ngach mien phi trong ngay (10.000 neurons/ngay, loi 429) tai thoi
+> diem sua — se cap nhat lai file nay ngay khi chay lai duoc.
+
 ## Luot 1
 **Cau hoi:** Hien hanh trinh cua tat ca tau do Evergreen Marine Corp khai thac tu ngay 10/09 den het 12/09/2026.
 **Tool da goi:** get_company_vessels, get_multi_journey_geojson

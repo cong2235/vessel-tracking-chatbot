@@ -166,9 +166,15 @@ TOOL_SPECS: list[dict[str, Any]] = [
                 "Tim tau theo LOAI TAU. Nguoi dung hoi bang tieng Viet ('tau cho "
                 "dau', 'tau hang', 'tau ca') - PHAI tu dich sang tu khoa tieng Anh "
                 "chuan AIS truoc khi goi: 'tau cho dau'->'Tanker', 'tau hang'/'tau "
-                "container'->'Cargo', 'tau ca'->'Fishing'. Dung khi can loc tau theo "
-                "loai (vd. ket hop voi get_multi_journey_geojson de ve hanh trinh "
-                "'tat ca tau hang')."
+                "container'->'Cargo', 'tau ca'->'Fishing'. Dung khi can DANH SACH "
+                "vessel_id cu the (vd. ket hop voi get_multi_journey_geojson de ve "
+                "hanh trinh 'tat ca tau hang'). Ket qua co total_matched (SO THAT "
+                "toan bo tau khop) va has_more=true neu 'vessels' KHONG chua het - "
+                "khi do PHAI noi ro con thieu bao nhieu tau, KHONG duoc coi danh "
+                "sach tra ve la day du. Neu can SO LIEU TONG HOP (tong/trung binh "
+                "quang duong, tau nao xa nhat) tren toan bo 1 loai tau, dung THANG "
+                "compare_journeys(ship_type_substring=...) thay vi goi tool nay roi "
+                "tu tinh - tool nay khong tinh hanh trinh."
             ),
             "parameters": {
                 "type": "object",
@@ -222,14 +228,27 @@ TOOL_SPECS: list[dict[str, Any]] = [
         "function": {
             "name": "compare_journeys",
             "description": (
-                "So sanh quang duong/toc do trung binh cua NHIEU tau (toi da 50) "
-                "trong cung 1 khoang thoi gian, DA SAP XEP san theo quang duong "
-                "giam dan (vessels[0] = di xa nhat, vessels[-1] = di gan nhat). "
-                "Dung khi can TRA LOI CAU HOI SO SANH ('tau nao di xa nhat', 'tau "
-                "nao cham nhat'...) — KHONG tu goi get_journey lap lai cho tung "
-                "tau roi tu so sanh, tool nay tinh va xep hang san trong 1 lan "
-                "goi. LUON goi search_vessel/get_company_vessels/"
-                "list_vessels_by_type TRUOC de lay danh sach vessel_id."
+                "So sanh quang duong/toc do trung binh cua NHIEU tau trong cung 1 "
+                "khoang thoi gian, DA SAP XEP san theo quang duong giam dan "
+                "(vessels[0] = di xa nhat, vessels[-1] = di gan nhat trong ket qua "
+                "tra ve). Dung khi can TRA LOI CAU HOI SO SANH ('tau nao di xa "
+                "nhat', 'tau nao cham nhat', 'tong/trung binh quang duong'...) — "
+                "KHONG tu goi get_journey lap lai cho tung tau roi tu so sanh/cong "
+                "don, tool nay tinh va xep hang san trong 1 lan goi.\n\n"
+                "CHI duoc truyen 1 TRONG 2 tham so loc sau (khong ca 2):\n"
+                "- vessel_ids: danh sach cu the (toi da 50 tau) - dung khi da biet "
+                "ro danh sach tau (vd. tu search_vessel/get_company_vessels). Tra "
+                "ve CHI TIET DAY DU cho moi tau trong danh sach.\n"
+                "- ship_type_substring: loc truc tiep theo LOAI TAU (vd. 'Cargo') "
+                "— dung khi cau hoi ve 'TOAN BO tau [loai]' ma khong biet truoc "
+                "danh sach vessel_id (vd. 628 tau Cargo, vuot xa gioi han 50). "
+                "KHONG gioi han so tau TINH TOAN — num_vessels/total_distance_nm/"
+                "avg_distance_nm/farthest/shortest la SO THAT tren TOAN BO tau "
+                "khop bo loc; chi truong 'vessels' (danh sach chi tiet) bi rut "
+                "gon con vai tau tieu bieu de khong qua tai context — neu co "
+                "truong 'note' trong ket qua, PHAI doc va lam theo huong dan do "
+                "(giai thich ro cho nguoi dung 'vessels' chi la mau, cac con so "
+                "tong hop van tinh tren toan bo tau)."
             ),
             "parameters": {
                 "type": "object",
@@ -237,12 +256,16 @@ TOOL_SPECS: list[dict[str, Any]] = [
                     "vessel_ids": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Danh sach vessel_id (uuid) can so sanh",
+                        "description": "Danh sach vessel_id (uuid) can so sanh - bo trong neu dung ship_type_substring",
+                    },
+                    "ship_type_substring": {
+                        "type": "string",
+                        "description": "Tu khoa loai tau tieng Anh (vd. 'Cargo', 'Tanker') - bo trong neu dung vessel_ids",
                     },
                     "start_ts": {"type": "string", "description": "ISO-8601 UTC"},
                     "end_ts": {"type": "string", "description": "ISO-8601 UTC"},
                 },
-                "required": ["vessel_ids", "start_ts", "end_ts"],
+                "required": ["start_ts", "end_ts"],
             },
         },
     },
