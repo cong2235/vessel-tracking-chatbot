@@ -247,8 +247,11 @@ thật từ vòng review đó và đã khắc phục, kèm bằng chứng.
   được chính nó xác nhận đúng bằng lời 1 lượt ngay trước đó. Đã thêm quy tắc
   cụ thể vào `SYSTEM_PROMPT` (quy tắc 6, 9) nhắm đúng 2 lỗi này, nhưng đây
   là lỗi suy luận/liên kết ngữ cảnh của model — không có sửa nào đảm bảo
-  100%, chỉ giảm xác suất. Phân tích đầy đủ + so sánh với `gpt-oss-20b`:
-  `docs/research.md` mục 1.4 và 6.4.
+  100%, chỉ giảm xác suất. **Hướng phát triển tiếp theo cụ thể cho từng lỗi
+  (chưa làm trong 7 ngày — mở rộng pin fact sang pin thực thể đã resolve
+  cho lỗi vessel_id; few-shot + guardrail ở tầng agent cho lỗi chọn sai
+  tool tổng hợp): `docs/research.md` mục 1.5.** Phân tích root-cause đầy đủ
+  + so sánh với `gpt-oss-20b`: `docs/research.md` mục 1.4 và 6.4.
 - **[ĐÃ SỬA] `OPENAI_BASE_URL` để trống ("=") vẫn gây lỗi** — OpenAI SDK tự
   đọc thẳng biến môi trường này, và biến RỖNG NHƯNG TỒN TẠI khiến SDK dùng
   chuỗi rỗng làm base_url thật (lỗi "missing http(s):// protocol"), bất kể
