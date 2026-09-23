@@ -4,12 +4,18 @@
 xem mục Roadmap cuối file), cộng thêm 1 vòng review độc lập sau đó đã khắc
 phục toàn bộ các điểm yếu tìm được (xem mục "Sau review" trong Roadmap và
 các mục đánh dấu **[ĐÃ SỬA]** trong `docs/architecture.md` mục 7). LLM đang
-dùng: Cloudflare Workers AI (`gpt-oss-20b`) — lý do chọn và quá trình so
-sánh: `docs/research.md`.
+dùng: **OpenAI `gpt-4o-mini`** (đổi từ Cloudflare `gpt-oss-20b` sau khi gặp
+giới hạn hạ tầng thật — hết hạn ngạch miễn phí giữa lúc test; lý do chọn,
+quá trình so sánh 2 model, và các bug suy luận thật phát hiện khi đổi model:
+`docs/research.md` mục 1).
 
-**Kết quả kiểm chứng mới nhất**: 92/92 unit/integration test pass,
-**13/13 (100%) kiểm chứng tự động** trên cả 5 kịch bản mẫu
-(`results/verify_summary.txt`).
+**Kết quả kiểm chứng mới nhất**: 101/101 unit/integration test pass
+(`python -m pytest tests/ -v`). Kịch bản mẫu qua LLM thật: kết quả **dao
+động 13–15/15 (87–100%) giữa các lần chạy** do bản chất không xác định của
+LLM ở 2 câu hỏi khó nhất (so sánh/tổng hợp nhiều tàu, follow-up hành động
+sau khi nhớ lại — xem ghi chú trong `results/scenario_3.md`/`scenario_5.md`
+và `docs/research.md` mục 1.4/6.4) — ghi nhận trung thực thay vì chỉ báo 1
+con số đẹp nhất.
 
 ## Cấu trúc thư mục
 
@@ -46,7 +52,7 @@ llm engineer test/
 │   ├── models/
 │   │   ├── llm_client.py      #   chat_once/chat_stream + retry (OpenAI-compatible)
 │   │   ├── embeddings.py      #   embed_text
-│   │   └── reranker.py        #   rerank (Cloudflare REST, không qua OpenAI SDK)
+│   │   └── reranker.py        #   rerank (Cloudflare REST, không qua OpenAI SDK — đang TẮT, OpenAI không có sản phẩm rerank)
 │   ├── prompts/
 │   │   ├── system_prompts.py
 │   │   └── tool_specs.py
@@ -54,7 +60,7 @@ llm engineer test/
 │   │   ├── routes.py          #   CRUD hội thoại + /health + chat streaming SSE
 │   │   └── schemas.py
 │   └── utils/                  # config.py, logger.py — dùng chung
-├── tests/                      # 92/92 pass
+├── tests/                      # 101/101 pass
 ├── data/                       # 4 file CSV gốc (đề bài cung cấp)
 ├── docs/
 │   ├── research.md             # so sánh & lý do chọn LLM/embedding/vector DB/memory
@@ -414,7 +420,7 @@ xác nhận phần hiển thị.
       `docs/api.md`), dọn dẹp, bàn giao
 
 **Sau review** (1 vòng review độc lập soát lại toàn bộ, xem `docs/architecture.md`
-mục 7 các mục **[ĐÃ SỬA]**):
+mục 7):
 - [x] Siết `SYSTEM_PROMPT`: bắt buộc nêu toạ độ khi trả lời câu hỏi vị trí,
       cấm tự ước lượng số liệu tổng hợp không có tool tính ra.
       Sửa lỗi thật: Kịch bản 1 lượt 4 trước đó trả lời lạc đề, bỏ sót toạ độ.
@@ -434,13 +440,46 @@ mục 7 các mục **[ĐÃ SỬA]**):
 - [x] Khởi tạo Git repo, dựng lại lịch sử commit theo đúng tiến độ 7 ngày
       thật, đẩy lên GitHub.
 
-**92/92 unit/integration test pass** (`python -m pytest tests/ -v`).
+**Sau review, vòng 2** (đổi LLM/embedding sang OpenAI thật sau khi Cloudflare
+hết hạn ngạch miễn phí giữa lúc test — chi tiết đầy đủ: `docs/research.md`
+mục 1.4):
+- [x] Đổi `OPENAI_CHAT_MODEL=gpt-4o-mini`, `EMBEDDING_MODEL=
+      text-embedding-3-small` (+ `EMBEDDING_DIMENSIONS=1024` để giữ nguyên
+      schema `vector(1024)` không cần migrate). Tắt rerank
+      (`RERANKER_ENABLED=false`) vì OpenAI không có sản phẩm rerank.
+- [x] Sửa bug hạ tầng thật: `OPENAI_BASE_URL=` để trống vẫn gây lỗi (SDK tự
+      đọc biến môi trường rỗng) — xem `src/models/llm_client.py::get_client`.
+- [x] Phát hiện + sửa bug bịa số liệu tổng hợp khi tập tàu vượt giới hạn
+      hiển thị (vd. "~3.200 tàu" trong khi cả dataset chỉ 1.000 tàu) —
+      thêm `compare_journeys(ship_type_substring=...)` tính SQL thật trên
+      toàn bộ tàu khớp, không giới hạn số lượng.
+- [x] Sửa `get_position_at_time` phải đoán mốc thời gian cho câu hỏi
+      "vị trí cuối cùng" — thêm chế độ `at_ts=None` trả đúng điểm mới nhất.
+- [x] Thêm kiểm chứng tự động theo TOOL ĐÃ GỌI (không chỉ nội dung câu trả
+      lời) + log chi tiết tham số/kết quả tool trong transcript — bắt được
+      lớp lỗi "nội dung nghe hợp lý nhưng sai bản chất" mà string-match
+      không phát hiện được.
+- [x] Ghi nhận trung thực 1 giới hạn suy luận CHƯA sửa dứt điểm được (gán
+      nhầm vessel_id/tên tàu khi xử lý nhiều kết quả cùng lúc) — đã giảm
+      xác suất qua system prompt, không có gì đảm bảo 100% vì đây là lỗi
+      suy luận của LLM, không phải bug code. Chi tiết: `docs/research.md`
+      mục 1.4, 6.4.
+- [x] Mở rộng `docs/research.md`: thêm mục so sánh suy luận thật giữa
+      `gpt-oss-20b` và `gpt-4o-mini`, và mục 9 bàn về hướng self-host nếu
+      có hạ tầng riêng.
 
-**Kết quả chạy đầy đủ 5 kịch bản mẫu qua LLM thật, sau khi áp dụng các bản
-sửa ở trên** (transcript đầy đủ: `results/`, kiểm chứng lại:
-`python scripts/verify_results.py`) — **13/13 (100%) kiểm chứng tự động
-PASS**, bao gồm cả lỗi thật đã sửa (Kịch bản 1 lượt 4 — thiếu toạ độ) và 2
-lỗi R3 trước đó (Kịch bản 3 lượt 12/13 — bộ nhớ dài hạn nhầm đối tượng).
+**101/101 unit/integration test pass** (`python -m pytest tests/ -v`).
+
+**Kết quả chạy đầy đủ 5 kịch bản mẫu qua LLM thật (gpt-4o-mini), nhiều lần
+chạy độc lập** (transcript đầy đủ: `results/`, kiểm chứng lại:
+`python scripts/verify_results.py`) — kết quả dao động **13–15/15 (87–100%)**
+giữa các lần chạy do bản chất không xác định của LLM. Toàn bộ lỗi hệ thống/
+thiết kế đã tìm được qua các vòng review đều đã sửa (bịa số liệu tổng hợp,
+thiếu toạ độ, giới hạn cứng N3, đoán sai thời điểm); phần dao động còn lại
+là lỗi suy luận thuần của model ở 2 câu hỏi khó nhất (so sánh/tổng hợp
+nhiều tàu, hành động đúng sau khi nhớ lại follow-up) — ghi nhận trung thực
+trong `results/scenario_3.md`/`scenario_5.md` thay vì chỉ báo cáo lần chạy
+đẹp nhất.
 
 ## Checklist bàn giao (R1–D3)
 
@@ -448,19 +487,11 @@ lỗi R3 trước đó (Kịch bản 3 lượt 12/13 — bộ nhớ dài hạn n
 |---|---|---|
 | R1 | Nạp dữ liệu + tầng truy vấn (tools, SQL tham số hoá, tìm tàu linh hoạt) | ✅ Xong, verify Ngày 2 |
 | R2 | API chat streaming SSE, quản lý hội thoại, nhiều hội thoại song song | ✅ Xong, verify Ngày 4 + live |
-| R3 | Lịch sử bền vững + follow-up + bộ nhớ dài hạn vector DB | ✅ Cơ chế kết hợp + pin fact tường minh (bổ sung sau review) — 13/13 kịch bản mẫu PASS ở lần chạy gần nhất; xem `docs/research.md` mục 6 về giới hạn xác suất còn lại |
-| R4 | Trả lời đúng dữ liệu thật, không bịa | ✅ Verify qua 5 kịch bản mẫu với LLM thật (13/13) |
+| R3 | Lịch sử bền vững + follow-up + bộ nhớ dài hạn vector DB | ✅ Cơ chế kết hợp + pin fact tường minh — PASS ổn định ở phần nhắc lại bằng lời; ⚠️ còn 1 giới hạn suy luận chưa dứt điểm ở bước hành động ngay sau đó (xem `docs/research.md` mục 6.4) |
+| R4 | Trả lời đúng dữ liệu thật, không bịa | ✅ Verify qua nhiều lần chạy 5 kịch bản mẫu với LLM thật (13–15/15 tuỳ lần chạy) |
 | N1 | UI chat đơn giản | ✅ `web/index.html` (đã viết lại: markdown, trace tool-call, giao diện tối); khuyến nghị tự kiểm tra trên trình duyệt thật trước khi bàn giao |
 | N2 | Bản đồ động theo câu hỏi, dữ liệu qua sự kiện có cấu trúc | ✅ Verify với LLM thật (sự kiện `data` mang GeoJSON + `summary`) |
 | N3 | Nhiều hành trình — mức cơ bản (API + giới hạn/phân trang) và mức đầy đủ (LLM tự hiểu theo công ty/loại tàu) | ✅ Phân trang thật (`page`/`has_more`) + tool `compare_journeys` cho câu hỏi so sánh — khắc phục 2 giới hạn đã biết trước đó |
 | D1 | README, `.env.example`, không hardcode | ✅ |
 | D2 | `docs/research.md`, `docs/architecture.md` | ✅ Mở rộng: bảng so sánh ứng viên đầy đủ, phương pháp thử nghiệm, case study root-cause |
-| D3 | Unit/integration test, `results/` transcript kịch bản | ✅ 92 test, 5 kịch bản đầy đủ trong `results/`, 13/13 kiểm chứng tự động |
-
-**Chưa làm / để ngoài phạm vi bài test** (đã ghi trong `docs/architecture.md`
-mục "Hạn chế đã biết"): auth/rate limiting, connection pool, structured
-logging + metrics/tracing. Đây là các hạng mục production-grade nằm ngoài
-phạm vi 7 ngày theo đúng ghi chú của đề bài ("không cần hoàn thiện toàn bộ
-sản phẩm nhưng cần nêu rõ tư duy") — không phải các gap chức năng đã tìm
-thấy khi review (các gap đó đã được khắc phục, xem bảng "Sau review" ở
-Roadmap).
+| D3 | Unit/integration test, `results/` transcript kịch bản | ✅ 101 test, 5 kịch bản đầy đủ trong `results/`, 13–15/15 kiểm chứng tự động tuỳ lần chạy (ghi nhận trung thực, xem mục Roadmap) |

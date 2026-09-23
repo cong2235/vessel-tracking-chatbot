@@ -1,12 +1,3 @@
-"""Entry point FastAPI.
-
-Chạy (khuyến nghị, auto-reload khi sửa code):
-    uvicorn main:app --reload --host 0.0.0.0 --port 8000
-
-Hoặc chạy trực tiếp:
-    python main.py
-"""
-
 from __future__ import annotations
 
 from pathlib import Path

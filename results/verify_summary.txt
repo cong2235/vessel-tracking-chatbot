@@ -2,26 +2,26 @@
 === scenario_1.md ===
   Luot 1: PASS (noi dung khop: ['563152500'])
   Luot 2: PASS (noi dung khop: ['PACIFIC INTERNATIONAL LINES'])
-  Luot 3: PASS (noi dung khop: ['KOTA LAYANG', 'KOTA NAZIM', 'KOTA NEKAD', 'KOTA RATU', 'KOTA SEGAR', 'KOTA SELAMAT'])
+  Luot 3: PASS (noi dung khop: ['KOTA AZAM', 'KOTA LAYANG', 'KOTA NAZIM', 'KOTA NEKAD', 'KOTA RATU', 'KOTA MACHAN', 'KOTA SEGAR', 'KOTA SELAMAT'])
   Luot 4: PASS (noi dung khop: ['21.74', '114.02'])
 
 === scenario_2.md ===
   Luot 1: PASS (noi dung khop: ['447'])
   Luot 2: PASS (noi dung khop: ['12/09'])
-  Luot 3: PASS (noi dung khop: ['dài hơn'])
+  Luot 3: PASS (noi dung khop: ['ngắn hơn'])
 
 === scenario_3.md ===
   Luot 12: PASS (noi dung khop: ['HS-2026-117'])
-  Luot 13: PASS (noi dung khop: ['18.4', '117.6', '23:50'])
+  Luot 13: FAIL (noi dung khop: KHONG CO)
 
 === scenario_4.md ===
   Luot 1: PASS (noi dung khop: ['WORLD SPIRIT'])
   Luot 2: PASS (noi dung khop: ['MARIGOLD TRANSPORT'])
-  Luot 3: PASS (noi dung khop: ['11,6'])
+  Luot 3: PASS (noi dung khop: ['11.6'])
 
 === scenario_5.md ===
   Luot 1: PASS (noi dung khop: ['EVER'])
   Luot 2: PASS (tool khop: ['compare_journeys'])
   Luot 3: FAIL (tool khop: KHONG CO)
 
-TONG: 14/15 (93%)
+TONG: 13/15 (87%)

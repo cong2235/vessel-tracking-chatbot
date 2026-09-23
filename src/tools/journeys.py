@@ -7,15 +7,12 @@ from typing import Any
 from src.db import get_cursor
 
 MAX_VESSELS_PER_REQUEST = 50
-# Do gian don duong (ST_Simplify) truoc khi tra ve - giu ban do muot voi
-# hang chuc nghin diem ma khong gui het toa do tho cho FE/LLM.
+
 SIMPLIFY_TOLERANCE_DEGREES = 0.0005
 
 
 def get_journey(vessel_id: str, start_ts: str, end_ts: str) -> dict[str, Any]:
-    # Diem dau/cuoi truy van RIENG (khong lay tu list co LIMIT) - neu ghep
-    # chung, so diem thuc te > LIMIT se cat nham "diem cuoi" thanh 1 diem
-    # giua duong, sai lech quang duong/toc do.
+    
     range_params = {"vid": vessel_id, "start": start_ts, "end": end_ts}
 
     with get_cursor() as cur:

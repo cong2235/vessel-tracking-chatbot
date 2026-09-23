@@ -17,9 +17,7 @@ def get_company_vessels(
     role: str | None = None,
     limit: int = DEFAULT_LIMIT,
 ) -> dict[str, Any]:
-    # company_name co nhieu bien the (vd. EVERGREEN MARINE CORP vs
-    # ...ASIA PTE LTD) - coi la cong ty khac nhau, khong tu gop nhom; tra
-    # ve ca danh sach bien the khop de LLM/nguoi dung tu chon.
+
     company_query = company_query.strip()
     if not company_query:
         return {"matched_companies": [], "vessels": []}
@@ -51,8 +49,6 @@ def get_company_vessels(
             role_filter = "AND o.role = %(role)s"
             params["role"] = role
 
-        # Gom nhom theo vessel_id (roles thanh mang) de khong lap lai 1 tau
-        # nhieu lan khi no co nhieu role/khop nhieu bien the ten cong ty.
         cur.execute(
             f"""
             SELECT v.vessel_id, v.mmsi, v.shipname, v.ship_type_summary,

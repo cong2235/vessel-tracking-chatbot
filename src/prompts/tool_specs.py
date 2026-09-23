@@ -93,14 +93,22 @@ TOOL_SPECS: list[dict[str, Any]] = [
         "function": {
             "name": "get_position_at_time",
             "description": (
-                "Lay vi tri (lat/lon) cua 1 tau tai 1 thoi diem cu the. Neu thoi diem "
-                "hoi nam GIUA 2 ban tin AIS, toa do se duoc NOI SUY TUYEN TINH giua 2 "
-                "diem do (is_interpolated=true) — day la uoc luong, khong phai ban "
-                "tin AIS that. Tra ve kem do lech thoi gian toi diem AIS that gan "
+                "Lay vi tri (lat/lon) cua 1 tau. 2 CHE DO:\n"
+                "- CO at_ts (hoi vi tri TAI 1 THOI DIEM CU THE, vd. 'luc 21h ngay "
+                "11/09 tau o dau'): neu thoi diem hoi nam GIUA 2 ban tin AIS, toa do "
+                "se duoc NOI SUY TUYEN TINH giua 2 diem do (is_interpolated=true) - "
+                "day la uoc luong, khong phai ban tin AIS that.\n"
+                "- KHONG truyen at_ts (hoi vi tri 'HIEN TAI'/'CUOI CUNG'/'gan day "
+                "nhat', KHONG co moc thoi gian cu the trong cau hoi): tra ve DUNG "
+                "diem AIS moi nhat hien co trong du lieu, KHONG noi suy. TUYET DOI "
+                "KHONG tu doan/bia 1 at_ts (vd. cuoi khoang du lieu) de gia lap 'vi "
+                "tri cuoi cung' - de trong tham so nay, tool tu tim dung diem moi "
+                "nhat, doan sai thoi diem se ra sai vi tri.\n"
+                "Ca 2 che do deu tra ve kem do lech thoi gian toi diem AIS that gan "
                 "nhat; co is_stale=true neu diem gan nhat van cach qua xa thoi diem "
-                "hoi — khi do phai noi ro voi nguoi dung la khong co du lieu chinh "
-                "xac gan thoi diem do. LUON neu ro toa do (lat/lon) trong cau tra "
-                "loi khi nguoi dung hoi ve vi tri."
+                "hoi (chi ap dung khi CO at_ts) — khi do phai noi ro voi nguoi dung "
+                "la khong co du lieu chinh xac gan thoi diem do. LUON neu ro toa do "
+                "(lat/lon) trong cau tra loi khi nguoi dung hoi ve vi tri."
             ),
             "parameters": {
                 "type": "object",
@@ -108,10 +116,14 @@ TOOL_SPECS: list[dict[str, Any]] = [
                     "vessel_id": {"type": "string"},
                     "at_ts": {
                         "type": "string",
-                        "description": "Thoi diem can tra cuu, ISO-8601 UTC, vi du 2026-09-11T21:00:00Z",
+                        "description": (
+                            "Thoi diem can tra cuu, ISO-8601 UTC, vi du "
+                            "2026-09-11T21:00:00Z. BO TRONG neu cau hoi la ve vi tri "
+                            "hien tai/cuoi cung (khong co moc thoi gian cu the)."
+                        ),
                     },
                 },
-                "required": ["vessel_id", "at_ts"],
+                "required": ["vessel_id"],
             },
         },
     },
@@ -120,9 +132,16 @@ TOOL_SPECS: list[dict[str, Any]] = [
         "function": {
             "name": "get_journey",
             "description": (
-                "Lay hanh trinh (duong di) cua 1 tau trong 1 khoang thoi gian: diem "
-                "dau, diem cuoi, so diem, tong quang duong (hai ly), toc do trung "
-                "binh."
+                "Lay hanh trinh (duong di) cua 1 TAU DUY NHAT trong 1 khoang thoi "
+                "gian: diem dau, diem cuoi, so diem, tong quang duong (hai ly), toc "
+                "do trung binh. CHI dung cho DUNG 1 TAU. Neu cau hoi lien quan toi "
+                "NHIEU HON 1 TAU (so sanh, liet ke hanh trinh nhieu tau, tim tau xa "
+                "nhat/gan nhat trong 1 nhom...), TUYET DOI KHONG goi tool nay lap lai "
+                "cho tung tau - dung compare_journeys (so sanh/xep hang) hoac "
+                "get_multi_journey_geojson (ve ban do) thay the. Goi get_journey "
+                "nhieu lan roi tu tong hop/so sanh bang tay RAT DE NHAM LAN so lieu "
+                "giua cac tau (da xay ra that - gan nham quang duong cua tau A cho "
+                "tau B khi tong hop thu cong tren 29 ket qua rieng le)."
             ),
             "parameters": {
                 "type": "object",

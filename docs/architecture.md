@@ -35,7 +35,7 @@ flowchart TB
     end
 
     DB[("PostgreSQL + PostGIS + pgvector")]
-    CF["Cloudflare Workers AI<br/>(LLM / embedding / rerank)"]
+    CF["OpenAI API<br/>(LLM / embedding — rerank tắt, xem docs/research.md muc 4.3)"]
 
     UI -- "POST /conversations/{id}/chat" --> ROUTES
     CURL --> ROUTES
@@ -67,7 +67,7 @@ sequenceDiagram
     participant API as FastAPI route
     participant Mem as memory.py
     participant Agent as agent.py
-    participant LLM as LLM (Cloudflare)
+    participant LLM as LLM (OpenAI)
     participant Tool as src/tools/*
     participant DB as Postgres
 
@@ -160,25 +160,32 @@ Xem đầy đủ tại [`db/schema.sql`](../db/schema.sql). Tóm tắt quyết �
 | `search_vessel` | tên/MMSI/IMO | Tìm tàu linh hoạt, fuzzy (R1) |
 | `get_vessel_info` | vessel_id | Thông tin tĩnh + ownership đầy đủ |
 | `get_company_vessels` | tên công ty, role? | Tàu theo công ty, tự tìm biến thể tên |
-| `list_vessels_by_type` | từ khoá loại tàu (EN) | Lọc theo loại tàu (N3) |
-| `get_position_at_time` | vessel_id, thời điểm | Vị trí gần nhất, **nội suy tuyến tính** giữa 2 điểm bao quanh nếu có đủ cả 2 (điểm cộng theo đề bài), kèm cờ `is_interpolated`/`is_stale` |
-| `get_journey` | vessel_id, khoảng thời gian | 1 hành trình, kèm GeoJSON |
+| `list_vessels_by_type` | từ khoá loại tàu (EN) | Lọc theo loại tàu (N3); trả kèm `total_matched`/`has_more` — không còn âm thầm cắt bớt |
+| `get_position_at_time` | vessel_id, thời điểm (tuỳ chọn) | **Có `at_ts`**: vị trí gần thời điểm đó, **nội suy tuyến tính** giữa 2 điểm bao quanh nếu có đủ cả 2 (điểm cộng theo đề bài), kèm cờ `is_interpolated`/`is_stale`. **Không truyền `at_ts`**: trả đúng điểm AIS MỚI NHẤT hiện có — dùng cho câu hỏi "vị trí hiện tại/cuối cùng", không cần model tự đoán 1 mốc thời gian |
+| `get_journey` | 1 vessel_id, khoảng thời gian | 1 hành trình, kèm GeoJSON. Mô tả tool nhấn mạnh CHỈ dùng cho 1 tàu — nếu nhiều tàu phải dùng `compare_journeys`/`get_multi_journey_geojson` |
 | `get_multi_journey_geojson` | list vessel_id, khoảng thời gian, `page`/`page_size` | Nhiều hành trình (N3), **phân trang thật** qua `has_more`/`total_vessels_requested` thay vì cắt cứng, đơn giản hoá đường bằng `ST_Simplify` |
-| `compare_journeys` | list vessel_id, khoảng thời gian | So sánh quãng đường/tốc độ nhiều tàu, **tính và xếp hạng sẵn trong 1 câu SQL** (tránh agent phải gọi `get_journey` lặp từng tàu, dễ chạm `MAX_TOOL_ITERATIONS`) |
+| `compare_journeys` | list vessel_id HOẶC `ship_type_substring`, khoảng thời gian | So sánh quãng đường/tốc độ nhiều tàu, **tính và xếp hạng sẵn trong 1 câu SQL**. Chế độ `ship_type_substring` tính SUM/AVG/MAX/MIN trên **toàn bộ** tàu khớp (không giới hạn số lượng, kể cả hàng trăm tàu) — chỉ rút gọn phần hiển thị chi tiết, tránh agent phải gọi `get_journey` lặp từng tàu (dễ chạm `MAX_TOOL_ITERATIONS` hoặc tự bịa số liệu tổng hợp) |
 | `get_dark_gaps` | vessel_id?, order_by | Sự kiện mất tín hiệu AIS, kèm GeoJSON |
 
 Nguyên tắc chung: SQL tham số hoá, chỉ SELECT có LIMIT, không dữ liệu thì trả
 `None`/`[]` (R4). Tool nào trả `geojson` sẽ tự động được tách sang sự kiện
 `data` kèm `summary` (N2/N3), không cần khai báo gì thêm ở tầng agent.
 
-`SYSTEM_PROMPT` (`src/prompts/system_prompts.py`) có 2 quy tắc bổ sung sau
-review, gắn trực tiếp với 2 tool mới/sửa ở trên:
-- Quy tắc 8: bắt buộc nêu rõ toạ độ khi trả lời câu hỏi vị trí (tránh lặp lại
-  lỗi thật đã phát hiện — xem mục 7).
-- Quy tắc 9: cấm tự ước lượng số liệu tổng hợp trên tập tàu lớn nếu không có
-  tool nào thực sự tính ra con số đó — bắt buộc dùng `compare_journeys` hoặc
-  nêu rõ giới hạn (vd. "chỉ tính được N/M tàu do giới hạn 1 lần gọi") thay vì
-  suy diễn 1 con số nghe hợp lý.
+`SYSTEM_PROMPT` (`src/prompts/system_prompts.py`) có nhiều quy tắc bổ sung
+sau review, mỗi quy tắc gắn trực tiếp với 1 lỗi THẬT đã phát hiện (không
+phải quy tắc phòng ngừa lý thuyết):
+- Quy tắc 6 (mở rộng): "tàu đó" luôn trỏ tới tàu vừa XÁC NHẬN trong câu trả
+  lời ngay trước, không phải tàu gần nhất trong lịch sử gọi tool — sửa lỗi
+  thật khi đổi sang `gpt-4o-mini` (xem `docs/research.md` mục 6.4).
+- Quy tắc 8: bắt buộc nêu rõ toạ độ khi trả lời câu hỏi vị trí.
+- Quy tắc 9: khi câu hỏi liên quan ≥ 2 tàu, bắt buộc dùng `compare_journeys`/
+  `get_multi_journey_geojson`, cấm tự gọi `get_journey` lặp lại rồi tổng hợp
+  bằng tay — sửa lỗi thật gán nhầm số liệu giữa các tàu (mục 1.4).
+- Quy tắc 10: câu hỏi vị trí hiện tại/cuối cùng gọi `get_position_at_time`
+  KHÔNG kèm `at_ts`, cấm tự đoán mốc thời gian.
+- Quy tắc 11: cấm tự ước lượng số liệu tổng hợp trên tập tàu lớn nếu không
+  có tool nào thực sự tính ra con số đó — bắt buộc dùng
+  `compare_journeys(ship_type_substring=...)`.
 
 ## 6. API
 
@@ -215,19 +222,46 @@ thật từ vòng review đó và đã khắc phục, kèm bằng chứng.
   "trong N tàu, tàu nào xa nhất" khiến model gọi `get_journey` TỪNG TÀU MỘT,
   chạm `MAX_TOOL_ITERATIONS=8` với N lớn → trả sự kiện `error`. Đã thêm tool
   `compare_journeys` tính và xếp hạng ngay trong 1 câu SQL.
-- **[ĐÃ SỬA MỘT PHẦN] R3 (bộ nhớ dài hạn)** — trước đây không đạt độ tin cậy
-  100% khi hội thoại dài, gốc rễ là cơ chế "kết hợp" (tóm tắt + embedding +
-  rerank) phụ thuộc hoàn toàn vào việc model tự ưu tiên đúng ngữ cảnh trong 1
-  khối văn bản dài. Đã bổ sung cơ chế pin fact tường minh (tách câu "ghi nhớ
-  giúp tôi..." ra khỏi luồng tóm tắt ngữ nghĩa, luôn đưa vào context không
-  qua bước lọc điểm số) — xem `docs/research.md` mục 6.3 để biết đầy đủ đánh
-  đổi. Xác nhận: chạy lại đầy đủ 5 kịch bản, Kịch bản 3 lượt 12/13 PASS
-  (`results/scenario_3.md`), tổng thể 13/13 (`results/verify_summary.txt`).
-  **Vẫn cần lưu ý**: đây là cải thiện có cơ sở kỹ thuật rõ ràng (loại bỏ 1
-  lớp bất định), không phải "sửa dứt điểm mọi trường hợp" — cơ chế pin chỉ
-  bắt được câu nói đúng mẫu ("ghi nhớ", "nhớ giúp"...); người dùng diễn đạt
-  hoàn toàn khác đi vẫn đi qua đường tóm tắt ngữ nghĩa với độ tin cậy như đã
-  ghi nhận ở phần case study.
+- **[ĐÃ SỬA] Model tự bịa số liệu tổng hợp khi tập tàu vượt giới hạn hiển
+  thị chi tiết** — phát hiện nghiêm trọng khi soát tay `results/scenario_5.md`
+  (không nằm trong kiểm chứng tự động cũ): model từng tự bịa "~3.200 tàu,
+  ~5.200.000 hải lý" (trong khi cả dataset chỉ có 1.000 tàu) khi được hỏi
+  tổng hợp trên toàn bộ tàu Cargo. Đã sửa bằng `compare_journeys
+  (ship_type_substring=...)` tính SUM/AVG/MAX thật trên SQL (không giới
+  hạn số lượng) + thêm kiểm chứng tự động theo TOOL ĐÃ GỌI (không chỉ nội
+  dung câu trả lời) vào `scripts/verify_results.py`/`run_scenarios.py` để
+  bắt được đúng loại lỗi này trong tương lai (nội dung "nghe hợp lý" không
+  đủ để phát hiện qua string-match).
+- **[ĐÃ SỬA] `get_position_at_time` buộc model phải đoán mốc thời gian cho
+  câu hỏi "vị trí cuối cùng"** — không có tham số thời gian cụ thể trong câu
+  hỏi khiến model tự đoán 1 `at_ts`, có lần đoán sai (chọn mốc đầu thay vì
+  cuối) và trả về vị trí CŨ NHẤT thay vì MỚI NHẤT. Đã thêm chế độ
+  `at_ts=None` trả đúng điểm AIS mới nhất, loại bỏ hẳn nhu cầu đoán mò.
+- **[GHI NHẬN, CHƯA SỬA DỨT ĐIỂM — giới hạn suy luận của LLM] Gán nhầm số
+  liệu/vessel_id giữa các tàu khi phải xử lý nhiều kết quả cùng lúc** — phát
+  hiện thật sau khi đổi sang `gpt-4o-mini`: (1) 1 lần chạy tự gộp 29 kết quả
+  `get_journey` rồi gán nhầm quãng đường của "EVER GLOBE" cho tên
+  "EVER GIFTED" (số liệu thật, tên sai); (2) 1 lần chạy khác gọi đúng
+  `get_position_at_time` (không đoán `at_ts`, dùng đúng cơ chế mới) nhưng
+  truyền nhầm `vessel_id` của tàu vừa được hỏi ở lượt trước thay vì tàu vừa
+  được chính nó xác nhận đúng bằng lời 1 lượt ngay trước đó. Đã thêm quy tắc
+  cụ thể vào `SYSTEM_PROMPT` (quy tắc 6, 9) nhắm đúng 2 lỗi này, nhưng đây
+  là lỗi suy luận/liên kết ngữ cảnh của model — không có sửa nào đảm bảo
+  100%, chỉ giảm xác suất. Phân tích đầy đủ + so sánh với `gpt-oss-20b`:
+  `docs/research.md` mục 1.4 và 6.4.
+- **[ĐÃ SỬA] `OPENAI_BASE_URL` để trống ("=") vẫn gây lỗi** — OpenAI SDK tự
+  đọc thẳng biến môi trường này, và biến RỖNG NHƯNG TỒN TẠI khiến SDK dùng
+  chuỗi rỗng làm base_url thật (lỗi "missing http(s):// protocol"), bất kể
+  `src/utils/config.py::get_openai_base_url()` đã tự chuyển `"" -> None`
+  đúng. Phát hiện thật khi đổi sang OpenAI (làm theo đúng hướng dẫn cũ của
+  `.env.example`). Đã sửa ở `src/models/llm_client.py::get_client` (tự xoá
+  biến rỗng khỏi `os.environ` trước khi tạo client) + cập nhật hướng dẫn
+  trong `.env.example` + thêm unit test hồi quy.
+- **Rerank đang TẮT** (`RERANKER_ENABLED=false`) — OpenAI không có sản phẩm
+  rerank (chỉ chat + embedding), và Cloudflare (nơi có `bge-reranker-base`)
+  cũng đang hết hạn ngạch miễn phí cùng lúc đổi provider. Bù đắp phần lớn
+  bằng cơ chế pin fact tường minh (không cần rerank cho use case chính) —
+  chi tiết đánh đổi: `docs/research.md` mục 4.3.
 - **Không có auth/rate limiting** — bất kỳ ai cũng gọi được mọi
   `conversation_id`. Chấp nhận được cho bài test, KHÔNG chấp nhận được cho
   production thật.
@@ -237,14 +271,16 @@ thật từ vòng review đó và đã khắc phục, kèm bằng chứng.
 - **Đã thêm retry cho lỗi mạng/server tạm thời** (`tenacity`, 3 lần, backoff
   tăng dần) sau khi phát hiện thật 1 lỗi `500` thoáng qua làm crash kịch bản
   đang chạy. Chỉ retry lỗi 5xx/kết nối, không retry lỗi 4xx. **Lưu ý thật**: ở
-  1 lần chạy khác (Kịch bản 5, lượt 2–3), Cloudflare trả lỗi 500 KÉO DÀI hơn
-  cả 3 lần retry (~10s) — rủi ro vận hành thật của hạ tầng inference dùng
-  chung/giá rẻ, không phải lỗi code. Production thật cần alerting + có thể
-  cần fallback provider.
+  1 lần chạy khác (Kịch bản 5, lượt 2–3, khi còn dùng Cloudflare), lỗi 500
+  KÉO DÀI hơn cả 3 lần retry (~10s) — rủi ro vận hành thật của hạ tầng
+  inference dùng chung/giá rẻ, không phải lỗi code. Production thật cần
+  alerting + có thể cần fallback provider — xem thêm hướng self-host ở
+  `docs/research.md` mục 9.
 - **Không có observability đầy đủ** — chỉ có log text (`src/utils/logger.py`),
   chưa có structured logging (JSON), metrics (Prometheus), hay tracing.
-- **`gpt-oss-20b` qua Cloudflare có vài quirk đã gặp khi test thật** — bảng
-  đầy đủ (triệu chứng/nguyên nhân/cách khắc phục): `docs/research.md` mục 1.3.
+- **Quirk của `gpt-oss-20b` qua Cloudflare** (không còn dùng, giữ lại làm
+  hồ sơ) và **so sánh chất lượng suy luận thật với `gpt-4o-mini`** — bảng
+  đầy đủ: `docs/research.md` mục 1.3 và 1.4.
 - **UI (N1) đã được viết lại (markdown render, hiển thị "quá trình xử lý"
   tool-call, giao diện tối) sau review, nhưng nên tự kiểm tra lại bằng mắt
   trên trình duyệt thật 1 lần trước khi bàn giao** — môi trường phát triển
@@ -255,7 +291,10 @@ thật từ vòng review đó và đã khắc phục, kèm bằng chứng.
 
 ### 8.1. Đo thực tế trong quá trình phát triển
 
-(Cloudflare Workers AI, `gpt-oss-20b` + `bge-m3` + `bge-reranker-base`):
+(Số liệu ban đầu, đo với Cloudflare Workers AI — `gpt-oss-20b` + `bge-m3` +
+`bge-reranker-base` — trước khi đổi sang OpenAI, xem mục 7 và
+`docs/research.md` mục 1.4. Bậc độ lớn tương tự với `gpt-4o-mini`, chưa đo
+lại chi tiết từng mốc sau khi đổi provider):
 
 | Việc | Thời gian đo thực tế |
 |---|---|
@@ -267,8 +306,15 @@ thật từ vòng review đó và đã khắc phục, kèm bằng chứng.
 
 ### 8.2. Mô hình chi phí
 
-Giá niêm yết Cloudflare Workers AI tại thời điểm viết tài liệu (cần đối
-chiếu lại giá mới nhất trước khi dùng cho quyết định thật):
+**Giá đang dùng thật (OpenAI, tại thời điểm viết tài liệu — cần đối chiếu
+lại giá mới nhất trước khi dùng cho quyết định thật)**:
+- `gpt-4o-mini`: $0.15 / triệu token input, $0.6 / triệu token output.
+- `text-embedding-3-small`: $0.02 / triệu token — rất rẻ, không đáng kể ở
+  quy mô bài test.
+- Rerank: không áp dụng (đang tắt — mục 7).
+
+**Giá ban đầu (Cloudflare Workers AI, khi còn dùng `gpt-oss-20b`, giữ lại
+để đối chiếu)**:
 - `gpt-oss-20b`: $0.2 / triệu token input, $0.3 / triệu token output.
 - `bge-m3` (embedding): tính theo neurons, rất rẻ (~vài phần nghìn USD/1000 lượt).
 - `bge-reranker-base`: $0.00311 / triệu token input.

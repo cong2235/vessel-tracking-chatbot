@@ -5,6 +5,7 @@ docs/research.md)."""
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from typing import Any, Iterator
 
@@ -58,9 +59,19 @@ _client: OpenAI | None = None
 def get_client() -> OpenAI:
     global _client
     if _client is None:
+        base_url = get_openai_base_url()
+        if base_url is None:
+            # Phat hien that: OpenAI SDK tu doc bien moi truong OPENAI_BASE_URL
+            # THANG (khong qua get_openai_base_url()) khi ban trong "" van
+            # con TON TAI trong os.environ (vd. dong "OPENAI_BASE_URL=" rong
+            # trong .env.example/.env) - "" ton tai (khac voi bien khong ton
+            # tai) khien SDK dung "" lam base_url that su, tao URL relative
+            # loi "missing http(s):// protocol". Xoa han bien nay khoi
+            # os.environ khi rong de SDK tu dung default that su cua no.
+            os.environ.pop("OPENAI_BASE_URL", None)
         _client = OpenAI(
             api_key=get_openai_api_key(),
-            base_url=get_openai_base_url(),
+            base_url=base_url,
             timeout=get_llm_timeout_seconds(),  # SDK mac dinh 600s, qua dai
         )
     return _client
