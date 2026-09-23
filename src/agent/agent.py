@@ -1,11 +1,5 @@
-"""Vòng lặp tool-calling: gọi LLM -> nếu có tool_call -> chạy tool thật ->
-đưa kết quả lại cho LLM -> lặp tới khi có câu trả lời cuối cùng.
-
-run_agent_turn() (không streaming, CLI/test) và run_agent_turn_stream()
-(streaming, API SSE) cố tình không hợp nhất — cơ chế đủ khác nhau (đợi
-trọn phản hồi vs. xử lý từng chunk) để dùng chung dễ sinh bug hơn là lặp
-code.
-"""
+"""Vòng lặp tool-calling: gọi LLM, thực thi tool khi được yêu cầu, đưa kết
+quả lại cho LLM, lặp tới khi có câu trả lời cuối cùng."""
 
 from __future__ import annotations
 
@@ -18,7 +12,7 @@ from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-MAX_TOOL_ITERATIONS = 8  # chan vong lap vo han neu model cu goi tool mai
+MAX_TOOL_ITERATIONS = 8
 
 
 def run_agent_turn(messages: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]]]:
@@ -37,7 +31,7 @@ def run_agent_turn(messages: list[dict[str, Any]]) -> tuple[str, list[dict[str, 
         for tool_call in response.tool_calls:
             logger.info("tool_call name=%s args=%s", tool_call.name, tool_call.arguments)
             result = _execute_tool(tool_call.name, tool_call.arguments)
-            llm_result, _geojson = _split_geojson(result)  # CLI khong co map, bo geojson
+            llm_result, _geojson = _split_geojson(result)
             tool_message = {
                 "role": "tool",
                 "tool_call_id": tool_call.id,
@@ -52,8 +46,6 @@ def run_agent_turn(messages: list[dict[str, Any]]) -> tuple[str, list[dict[str, 
 
 
 class AgentTurnResult:
-    # Generator khong tien tra ve gia tri cung luc voi yield - dung object
-    # mutable de caller doc new_messages sau khi stream chay xong.
     def __init__(self) -> None:
         self.new_messages: list[dict[str, Any]] = []
 
@@ -61,9 +53,6 @@ class AgentTurnResult:
 def run_agent_turn_stream(
     messages: list[dict[str, Any]], result: AgentTurnResult
 ) -> Iterator[dict[str, Any]]:
-    # Su kien: token/tool_call/done/error. Loi (LLM, vuot MAX_TOOL_ITERATIONS)
-    # phat qua event error roi return, khong raise - stream SSE da mo thi
-    # khong the tra HTTP error code giua chung.
     working_messages = list(messages)
 
     for _ in range(MAX_TOOL_ITERATIONS):
@@ -95,9 +84,6 @@ def run_agent_turn_stream(
             tool_result = _execute_tool(tool_call.name, tool_call.arguments)
             llm_result, geojson = _split_geojson(tool_result)
             if geojson is not None:
-                # summary = chinh llm_result (da bo geojson) - tai su dung so
-                # lieu tool da tinh san (distance_nm, avg_speed_knots...) de
-                # FE ve the thong ke tren ban do, khong phai tinh lai/bia them.
                 yield {
                     "event": "data",
                     "data": {"type": "geojson", "tool": tool_call.name, "geojson": geojson, "summary": llm_result},
@@ -117,9 +103,6 @@ def run_agent_turn_stream(
 
 
 def _split_geojson(result: Any) -> tuple[Any, Any | None]:
-    # N2/N3: tool tra ve dict co key "geojson" (co the None) -> tach rieng
-    # gui cho FE ve map qua su kien `data`, khong nhet toa do tho vao
-    # context LLM (chi con lai cac truong tom tat: so tau/diem/bbox...).
     if isinstance(result, dict) and "geojson" in result:
         geojson = result["geojson"]
         llm_result = {k: v for k, v in result.items() if k != "geojson"}
@@ -128,8 +111,6 @@ def _split_geojson(result: Any) -> tuple[Any, Any | None]:
 
 
 def _execute_tool(name: str, arguments: dict[str, Any]) -> Any:
-    # Loi tool khong duoc thoat ra ngoai vong lap - tra ve {"error": ...}
-    # de LLM biet va bao lai nguoi dung thay vi bia (R4).
     tool_fn = TOOL_REGISTRY.get(name)
     if tool_fn is None:
         return {"error": f"Tool khong ton tai: {name}"}

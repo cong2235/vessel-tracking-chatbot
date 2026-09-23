@@ -19,8 +19,6 @@ def get_dark_gaps(
     order_by: str = "start_ts",
     limit: int = DEFAULT_LIMIT,
 ) -> dict[str, Any]:
-    # Toc do/vi tri truoc khi mat tin hieu: goi get_position_at_time(vessel_id,
-    # gap_start_ts) - diem gan gap_start_ts nhat chinh la diem cuoi truoc gap.
     if order_by not in _ORDER_COLUMNS:
         raise ValueError(f"order_by khong hop le: {order_by!r}, chi nhan {list(_ORDER_COLUMNS)}")
 

@@ -32,7 +32,4 @@ def test_embed_text_omits_dimensions_when_not_configured(monkeypatch):
     with patch("src.models.embeddings.get_client", return_value=fake_client):
         embed_text("hello")
 
-    # Provider khong ho tro `dimensions` (vd. Cloudflare) co the tra ve 400
-    # neu tham so la duoc truyen - phai KHONG co trong kwargs khi khong cau
-    # hinh, khong phai truyen None.
     assert "dimensions" not in fake_client.embeddings.create.call_args.kwargs

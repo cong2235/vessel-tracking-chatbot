@@ -81,7 +81,7 @@ def test_stream_no_tool_call_yields_done_immediately(monkeypatch):
 def test_stream_llm_exception_yields_error_event_not_raise(monkeypatch):
     def broken_stream(messages, tools=None):
         raise ConnectionError("khong ket noi duoc toi LLM")
-        yield  # pragma: no cover - lam cho ham la generator
+        yield
 
     monkeypatch.setattr("src.agent.agent.chat_stream", broken_stream)
 

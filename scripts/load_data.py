@@ -23,12 +23,6 @@ from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-# Cột kỳ vọng theo ĐÚNG thứ tự cho từng file — dùng để xác thực header trước
-# khi COPY. COPY của Postgres map dữ liệu theo VỊ TRÍ cột, không theo tên
-# trong dòng header, nên nếu thứ tự cột trong CSV thay đổi mà không kiểm tra
-# trước, dữ liệu sẽ bị nạp sai cột một cách âm thầm (không lỗi). Việc này
-# chặn đứng rủi ro đó bằng cách so khớp header thực tế với danh sách dưới
-# đây, dừng ngay và báo lỗi rõ ràng nếu lệch.
 CSV_COLUMNS: dict[str, list[str]] = {
     "staging_vessels": [
         "vessel_id", "mmsi", "imo", "shipname", "callsign", "flag_code", "flag",
@@ -49,7 +43,6 @@ CSV_COLUMNS: dict[str, list[str]] = {
     ],
 }
 
-# Mỗi entry: (tên bảng staging, tên file csv, danh sách cột theo đúng thứ tự CSV)
 CSV_FILES = [
     ("staging_vessels", "vessels.csv"),
     ("staging_ais_positions", "ais_positions.csv"),
@@ -57,7 +50,6 @@ CSV_FILES = [
     ("staging_ownership", "ownership.csv"),
 ]
 
-# Số dòng kỳ vọng (theo mô tả đề bài) — dùng để cảnh báo nếu lệch, không chặn.
 EXPECTED_ROW_COUNTS = {
     "vessels": 1000,
     "ais_positions": 171073,
@@ -65,8 +57,6 @@ EXPECTED_ROW_COUNTS = {
     "ownership": 4127,
 }
 
-# Cast + làm sạch từ staging (toàn TEXT) sang bảng chính, xử lý các trường hợp
-# nhiễu đã biết: số dạng "9605047.0", cột rỗng -> NULL.
 INSERT_VESSELS = """
 INSERT INTO vessels (
     vessel_id, mmsi, imo, shipname, callsign, flag_code, flag,
@@ -199,9 +189,7 @@ def copy_csv_into_staging(conn, staging_table: str, csv_path: Path) -> int:
 
 def reload_target_tables(conn) -> None:
     with conn.cursor() as cur:
-        # vessels la bang cha; CASCADE se don sach ca 3 bang con tham chieu no
         cur.execute("TRUNCATE vessels RESTART IDENTITY CASCADE;")
-        # vessels phai nap truoc vi cac bang khac co FK vessel_id
         cur.execute(INSERT_VESSELS)
         cur.execute(INSERT_AIS_POSITIONS)
         cur.execute(INSERT_DARK_GAPS)
@@ -245,7 +233,7 @@ def main() -> int:
         all_ok = verify_row_counts(conn)
         conn.commit()
         print("[done] pipeline hoan tat, da commit.")
-        return 0 if all_ok else 0  # lech so dong chi la canh bao, khong fail pipeline
+        return 0 if all_ok else 0
     except Exception:
         conn.rollback()
         print("[error] pipeline that bai, da rollback toan bo thay doi.", file=sys.stderr)

@@ -1,15 +1,7 @@
--- ============================================================================
--- Schema cho hệ thống chatbot tra cứu tàu biển
--- Chạy lại nhiều lần an toàn (IF NOT EXISTS ở mọi nơi có thể).
--- ============================================================================
-
 CREATE EXTENSION IF NOT EXISTS postgis;
-CREATE EXTENSION IF NOT EXISTS pg_trgm;   -- fuzzy search tên tàu / tên công ty
-CREATE EXTENSION IF NOT EXISTS vector;    -- pgvector, dùng cho bộ nhớ dài hạn (R3)
-CREATE EXTENSION IF NOT EXISTS pgcrypto;  -- cho gen_random_uuid() (PG13+ đã có sẵn, tạo thêm cho an toàn)
-
--- STAGING TABLES: toan cot TEXT de COPY khong loi vi CSV nhieu (o rong, so
--- dang "9605047.0"...). Ep kieu/lam sach o scripts/load_data.py.
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE UNLOGGED TABLE IF NOT EXISTS staging_vessels (
     vessel_id text, mmsi text, imo text, shipname text, callsign text,
@@ -33,19 +25,15 @@ CREATE UNLOGGED TABLE IF NOT EXISTS staging_ownership (
     vessel_id text, role text, company_name text, company_country text, start_date text
 );
 
--- ----------------------------------------------------------------------------
--- BẢNG DỮ LIỆU CHÍNH (từ 4 file CSV)
--- ----------------------------------------------------------------------------
-
 CREATE TABLE IF NOT EXISTS vessels (
     vessel_id              uuid PRIMARY KEY,
     mmsi                   integer,
-    imo                    text,               -- giữ dạng text, có thể rỗng, không dùng để tính toán
-    shipname               text,               -- có thể rỗng hoặc trùng giữa các tàu
+    imo                    text,
+    shipname               text,
     callsign               text,
     flag_code              text,
     flag                   text,
-    ship_type_summary      text,               -- nhãn AIS gốc, tiếng Anh
+    ship_type_summary      text,
     ship_type_detail_name  text,
     length_m               double precision,
     width_m                double precision,
@@ -63,7 +51,7 @@ CREATE TABLE IF NOT EXISTS ais_positions (
     lon             double precision NOT NULL,
     speed_knots     double precision,
     course_deg      double precision,
-    heading_deg     double precision,          -- 511 = không có hướng mũi
+    heading_deg     double precision,
     nav_status      text,
     reported_dest   text,
     draught_m       double precision,
@@ -100,15 +88,11 @@ CREATE TABLE IF NOT EXISTS dark_gaps (
 CREATE TABLE IF NOT EXISTS ownership (
     id                bigserial PRIMARY KEY,
     vessel_id         uuid NOT NULL REFERENCES vessels(vessel_id),
-    role              text NOT NULL,   -- beneficial_owner | registered_owner | operator | commercial_manager | technical_manager | ism_manager
-    company_name      text NOT NULL,   -- viết hoa, có biến thể -> fuzzy match khi truy vấn
+    role              text NOT NULL,
+    company_name      text NOT NULL,
     company_country   text,
     start_date        date
 );
-
--- ----------------------------------------------------------------------------
--- INDEX cho tầng truy vấn (R1)
--- ----------------------------------------------------------------------------
 
 CREATE INDEX IF NOT EXISTS idx_vessels_shipname_trgm
     ON vessels USING gin (shipname gin_trgm_ops);
@@ -128,8 +112,6 @@ CREATE INDEX IF NOT EXISTS idx_ownership_company_trgm
     ON ownership USING gin (company_name gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_ownership_role ON ownership (role);
 
--- BANG UNG DUNG (hoi thoai, bo nho dai han - R2/R3)
-
 CREATE TABLE IF NOT EXISTS conversations (
     id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     title       text,
@@ -140,23 +122,17 @@ CREATE TABLE IF NOT EXISTS conversations (
 CREATE TABLE IF NOT EXISTS messages (
     id                bigserial PRIMARY KEY,
     conversation_id   uuid NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-    role              text NOT NULL,   -- user | assistant | tool
+    role              text NOT NULL,
     content           text,
-    tool_call_id      text,            -- chỉ có ở role='tool', khớp id trong tool_calls_json của message assistant liền trước (bắt buộc để dựng lại đúng lịch sử cho OpenAI-style tool-calling)
-    tool_calls_json   jsonb,           -- role='assistant': mảng tool_calls model yêu cầu gọi
+    tool_call_id      text,
+    tool_calls_json   jsonb,
     created_at        timestamptz NOT NULL DEFAULT now()
 );
-ALTER TABLE messages ADD COLUMN IF NOT EXISTS tool_call_id text;  -- migration an toan cho DB da co bang
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS tool_call_id text;
 
 CREATE INDEX IF NOT EXISTS idx_messages_conversation
     ON messages (conversation_id, created_at);
 
--- vector(1024) phai khop dung so chieu EMBEDDING_MODEL (mac dinh bge-m3).
--- is_pinned: fact tuong minh nguoi dung yeu cau "ghi nho giup toi..." - luu
--- rieng, KHONG gop vao ban tom tat ngu nghia chung (LLM tom tat co the bo
--- sot chi tiet khi nen chung voi noi dung khac trong cung 1 doan cu). Luon
--- duoc chen vao context bat ke embedding similarity/rerank (xem
--- src/agent/memory.py::_retrieve_pinned_facts).
 CREATE TABLE IF NOT EXISTS memory_chunks (
     id                  bigserial PRIMARY KEY,
     conversation_id     uuid NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
@@ -167,9 +143,8 @@ CREATE TABLE IF NOT EXISTS memory_chunks (
     is_pinned           boolean NOT NULL DEFAULT false,
     created_at          timestamptz NOT NULL DEFAULT now()
 );
-ALTER TABLE memory_chunks ADD COLUMN IF NOT EXISTS is_pinned boolean NOT NULL DEFAULT false;  -- migration an toan cho DB da co bang
+ALTER TABLE memory_chunks ADD COLUMN IF NOT EXISTS is_pinned boolean NOT NULL DEFAULT false;
 
--- migration an toan neu doi so chieu embedding (memory_chunks tai tao duoc)
 DROP INDEX IF EXISTS idx_memory_chunks_embedding;
 TRUNCATE memory_chunks;
 ALTER TABLE memory_chunks ALTER COLUMN embedding TYPE vector(1024);

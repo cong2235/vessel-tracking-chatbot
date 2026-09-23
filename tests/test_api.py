@@ -126,7 +126,6 @@ def test_chat_streams_events_and_persists_messages(monkeypatch):
     assert event_types == ["token", "tool_call", "token", "done"]
     assert events[-1][1]["answer"] == "Tau EVER VIVA."
 
-    # Kiem tra da persist dung: user + assistant(tool_call) + tool + assistant(final)
     rows = store.list_messages(conv["id"])
     roles = [r["role"] for r in rows]
     assert roles == ["user", "assistant", "tool", "assistant"]
@@ -151,7 +150,7 @@ def test_chat_sets_title_from_first_user_message_but_not_subsequent_ones(monkeyp
 
     client.post(f"/conversations/{conv['id']}/chat", json={"message": "Cau hoi tiep theo khac han"})
     after_second = store.get_conversation(conv["id"])
-    assert after_second["title"] == "Tau nao mat tin hieu AIS lau nhat?"  # khong bi ghi de
+    assert after_second["title"] == "Tau nao mat tin hieu AIS lau nhat?"
 
     store.delete_conversation(conv["id"])
 
@@ -159,7 +158,7 @@ def test_chat_sets_title_from_first_user_message_but_not_subsequent_ones(monkeyp
 def test_chat_llm_error_persists_user_message_and_streams_error_event(monkeypatch):
     def broken_stream(messages, tools=None):
         raise ConnectionError("khong goi duoc LLM")
-        yield  # pragma: no cover
+        yield
 
     monkeypatch.setattr("src.agent.agent.chat_stream", broken_stream)
 
@@ -170,7 +169,6 @@ def test_chat_llm_error_persists_user_message_and_streams_error_event(monkeypatc
     events = _parse_sse(resp.text)
     assert events[0][0] == "error"
 
-    # Cau hoi cua nguoi dung van phai duoc luu, du LLM loi
     rows = store.list_messages(conv["id"])
     assert [r["role"] for r in rows] == ["user"]
 

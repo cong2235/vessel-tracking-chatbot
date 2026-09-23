@@ -14,14 +14,13 @@ MAX_TITLE_LENGTH = 60
 
 
 def derive_title_from_message(text: str) -> str:
-    """Tieu de hoi thoai kieu ChatGPT: cat ngan tin nhan dau tien cua nguoi
-    dung (khong goi LLM - re, khong phu thuoc quota API con)."""
+    """Rút gọn tin nhắn đầu tiên của người dùng thành tiêu đề hội thoại."""
     text = " ".join(text.split())
     if len(text) <= MAX_TITLE_LENGTH:
         return text
     truncated = text[:MAX_TITLE_LENGTH]
     last_space = truncated.rfind(" ")
-    if last_space > 20:  # tranh cat qua ngan neu tu dau tien da dai
+    if last_space > 20:
         truncated = truncated[:last_space]
     return truncated + "…"
 

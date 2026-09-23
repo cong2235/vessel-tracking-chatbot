@@ -7,16 +7,10 @@ from typing import Any
 from src.db import get_cursor
 
 DEFAULT_LIMIT = 10
-
-# pg_trgm mac dinh 0.3 qua long (chuoi vo nghia van trung trigram ngau
-# nhien voi ten that). 0.4 loc bot false-positive, van giu duoc loi go sai
-# nhe nhu "KOTA GAIA" -> "KOTA GAYA".
 MIN_SIMILARITY_SCORE = 0.4
 
 
 def search_vessel(query: str, limit: int = DEFAULT_LIMIT) -> list[dict[str, Any]]:
-    # Luon tra ve list (ke ca rong/1 ket qua) de tang goi (LLM) tu quyet
-    # dinh khi trung ten hoac khong tim thay.
     query = query.strip()
     if not query:
         return []
@@ -65,7 +59,6 @@ def search_vessel(query: str, limit: int = DEFAULT_LIMIT) -> list[dict[str, Any]
 
 
 def list_vessels_by_type(ship_type_substring: str, limit: int = 500) -> dict[str, Any]:
-
     pattern = f"%{ship_type_substring}%"
     with get_cursor() as cur:
         cur.execute(

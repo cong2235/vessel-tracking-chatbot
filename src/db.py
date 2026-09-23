@@ -1,5 +1,4 @@
-"""Kết nối PostgreSQL dùng chung. Mỗi lời gọi mở/đóng 1 connection riêng
-(không cần connection pool ở quy mô này)."""
+"""Kết nối PostgreSQL dùng chung."""
 
 from __future__ import annotations
 
@@ -16,7 +15,7 @@ from src.utils.config import get_database_url
 @contextmanager
 def get_cursor() -> Iterator[psycopg2.extras.RealDictCursor]:
     conn = psycopg2.connect(get_database_url())
-    register_vector(conn)  # cho phep truyen thang list[float] vao cot vector
+    register_vector(conn)
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             yield cur

@@ -7,12 +7,11 @@ from typing import Any
 from src.db import get_cursor
 
 MAX_VESSELS_PER_REQUEST = 50
-
 SIMPLIFY_TOLERANCE_DEGREES = 0.0005
+COMPARE_SAMPLE_SIZE = 10
 
 
 def get_journey(vessel_id: str, start_ts: str, end_ts: str) -> dict[str, Any]:
-    
     range_params = {"vid": vessel_id, "start": start_ts, "end": end_ts}
 
     with get_cursor() as cur:
@@ -91,14 +90,7 @@ def get_multi_journey_geojson(
     page: int = 1,
     page_size: int = MAX_VESSELS_PER_REQUEST,
 ) -> dict[str, Any]:
-    """N3: hanh trinh cua nhieu tau cung luc. LLM chi nen doc cac truong
-    ngoai "geojson" (num_vessels/total_points/bbox/vessel_names) - geojson
-    day du duoc tach rieng sang su kien `data` cho FE, khong di qua model.
-
-    Phan trang THAT tren danh sach vessel_ids dau vao (khong chi cat cung
-    lay 50 tau dau): page/page_size chon 1 lat cat cua vessel_ids, has_more
-    bao con trang tiep theo hay khong - LLM goi lai voi page+1 de lay het
-    khi vessel_ids vuot MAX_VESSELS_PER_REQUEST (vd. 628 tau Cargo)."""
+    """Hành trình của nhiều tàu cùng lúc, có phân trang theo `vessel_ids`."""
     page = max(1, page)
     page_size = min(max(1, page_size), MAX_VESSELS_PER_REQUEST)
     total_vessels_requested = len(vessel_ids)
@@ -178,31 +170,19 @@ def get_multi_journey_geojson(
     }
 
 
-COMPARE_SAMPLE_SIZE = 10  # so tau chi tiet tra ve khi loc theo loai (co the hang tram tau)
-
-
 def compare_journeys(
     vessel_ids: list[str] | None = None,
     start_ts: str = "",
     end_ts: str = "",
     ship_type_substring: str | None = None,
 ) -> dict[str, Any]:
-    """So sanh quang duong/toc do nhieu tau trong 1 khoang thoi gian. Tinh va
-    sap xep NGAY TRONG SQL (1 lan goi) - tranh LLM phai tu lap get_journey
-    cho tung tau roi tu so sanh (vua cham MAX_TOOL_ITERATIONS voi nhieu tau,
-    vua de tinh sai/quen tau khi so sanh thu cong qua nhieu luot).
-
-    2 che do loc, KHONG dung dong thoi:
-    - vessel_ids: danh sach cu the (toi da MAX_VESSELS_PER_REQUEST=50) - tra
-      ve chi tiet DAY DU cho tung tau trong danh sach.
-    - ship_type_substring: loc theo loai tau (vd. "Cargo") - KHONG gioi han
-      so tau tinh toan (Postgres tu aggregate tren toan bo tau khop, du la
-      hang tram tau), nhung chi tra ve mau (COMPARE_SAMPLE_SIZE tau) trong
-      "vessels" de khong nhet qua nhieu du lieu vao context LLM (R1/R4);
-      total_distance_nm/avg_distance_nm/farthest/shortest/num_vessels van
-      la SO THAT tinh tren TOAN BO tau khop, khong phai chi tren mau tra
-      ve - day la co che de KHONG can LLM tu uoc luong/bia so lieu tong
-      hop khi tap tau vuot gioi han hien thi chi tiet.
+    """So sánh quãng đường/tốc độ trung bình của nhiều tàu, xếp hạng theo
+    quãng đường giảm dần. Chỉ định `vessel_ids` (tối đa
+    `MAX_VESSELS_PER_REQUEST`) hoặc `ship_type_substring`, không dùng đồng
+    thời cả hai. Ở chế độ `ship_type_substring`, các trường tổng hợp
+    (`num_vessels`, `total_distance_nm`, `avg_distance_nm`, `farthest`,
+    `shortest`) được tính trên toàn bộ tàu khớp bộ lọc; trường `vessels`
+    chỉ trả về tối đa `COMPARE_SAMPLE_SIZE` tàu làm mẫu.
     """
     if ship_type_substring:
         where_clause = "v.ship_type_summary ILIKE %(pattern)s"
@@ -252,15 +232,12 @@ def compare_journeys(
         return {"num_vessels": 0, "vessels": [], "farthest": None, "shortest": None}
 
     result: dict[str, Any] = {
-        "num_vessels": len(vessels),  # SO THAT tren TOAN BO tau khop (khong bi cat khi loc theo loai)
+        "num_vessels": len(vessels),
         "vessels": vessels if vessel_cap is not None else vessels[:COMPARE_SAMPLE_SIZE],
         "farthest": vessels[0],
         "shortest": vessels[-1],
     }
     if vessel_cap is None:
-        # Loc theo loai: them so lieu tong hop THAT tren TOAN BO tau khop
-        # (khong phai chi tren mau "vessels" o tren) - LLM dung thang cac
-        # truong nay, KHONG duoc tu tinh/uoc luong lai (xem SYSTEM_PROMPT).
         total_distance_nm = sum(v["distance_nm"] for v in vessels)
         result["total_distance_nm"] = total_distance_nm
         result["avg_distance_nm"] = total_distance_nm / len(vessels)

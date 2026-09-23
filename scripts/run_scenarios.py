@@ -22,28 +22,19 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-# Ép ngưỡng nhỏ để Kịch bản 3 thực sự trigger tóm tắt + truy xuất bộ nhớ dài
-# hạn (đúng gợi ý đề bài: "để người chấm giảm nhỏ khi kiểm tra"). Đặt TRƯỚC
-# khi import các module đọc config lười (config đọc os.environ mỗi lần gọi
-# nên set ở đây vẫn kịp).
 os.environ.setdefault("CONTEXT_WINDOW_TURNS", "6")
 
-from src.agent import store  # noqa: E402
-from src.agent.agent import run_agent_turn  # noqa: E402
-from src.agent.memory import build_llm_context  # noqa: E402
-from src.prompts.system_prompts import SYSTEM_PROMPT  # noqa: E402
-from src.utils.text_normalize import contains_any  # noqa: E402
+from src.agent import store
+from src.agent.agent import run_agent_turn
+from src.agent.memory import build_llm_context
+from src.prompts.system_prompts import SYSTEM_PROMPT
+from src.utils.text_normalize import contains_any
 
 RESULTS_DIR = PROJECT_ROOT / "results"
 RESULTS_DIR.mkdir(exist_ok=True)
 
 
 def _safe_print(text: str) -> None:
-    # Console Windows mac dinh dung codepage (vd. cp1258) khong encode duoc
-    # mot so ky tu Unicode model hay dung (NBSP, narrow no-break space...) -
-    # print() thang se crash ca script giua chung. Fallback thay the ky tu
-    # loi bang '?' thay vi de UnicodeEncodeError lam mat toan bo ket qua con
-    # lai (transcript van luu day du vao file UTF-8, chi anh huong log console).
     try:
         print(text)
     except UnicodeEncodeError:
@@ -54,12 +45,6 @@ def run_turn(conversation_id, question: str) -> tuple[str, list[dict]]:
     store.append_message(conversation_id, "user", question)
 
     try:
-        # build_llm_context tu goi LLM/embedding that (tom tat + nhung khi
-        # vuot cua so) - phat hien that: loi o day (vd. 429 het quota) truoc
-        # day khong duoc bat, lam crash toan bo script giua chung va mat
-        # luon ket qua cac kich ban DA chay xong nhung chua kip ghi file.
-        # Bat chung voi loi cua run_agent_turn ben duoi de 1 luot loi khong
-        # lam mat ket qua cac kich ban/luot khac.
         context = build_llm_context(conversation_id, question)
         messages = [{"role": "system", "content": SYSTEM_PROMPT}] + context
         answer, new_messages = run_agent_turn(messages)
@@ -76,11 +61,6 @@ def run_turn(conversation_id, question: str) -> tuple[str, list[dict]]:
                 conversation_id, "tool", content=m.get("content"), tool_call_id=m.get("tool_call_id")
             )
 
-    # Ghep tung tool_call (ten + tham so, tu message assistant) voi dung
-    # ket qua tra ve cua no (message tool ke tiep, khop qua tool_call_id) -
-    # phat hien that dan den them: 1 cau tra loi tra ve DUNG ten tool nhung
-    # NOI DUNG sai (vd. gan nham vessel_id/ten tau) ma khong the chan doan
-    # duoc chi tu ten tool - can ca tham so LAN ket qua that de doi chieu.
     tool_results_by_id = {
         m["tool_call_id"]: m.get("content", "")
         for m in new_messages
@@ -133,8 +113,6 @@ def run_scenario(name: str, turns: list[dict]) -> dict:
         passed = None
         if checks_defined:
             checked_count += 1
-            # Ca 2 dieu kien (neu co khai bao) deu phai dung - text dung ma
-            # goi sai tool (hoac nguoc lai) van la FAIL.
             passed = bool((expect_any is None or text_ok) and (expect_tool is None or tool_ok))
             if passed:
                 passed_count += 1
@@ -183,12 +161,6 @@ def write_transcript(result: dict, filename: str) -> None:
         tools_called = r["tools_called"]
         if tools_called:
             lines.append(f"**Tool da goi:** {', '.join(t['name'] for t in tools_called)}")
-            # Chi tiet tham so + ket qua (rut gon) - phat hien that dan den
-            # them: chi biet TEN tool da goi khong du de doi chieu khi cau
-            # tra loi cuoi noi dung sai du goi dung tool (vd. gan nham ten
-            # tau) - can ca tham so LAN ket qua that de xac dinh loi nam o
-            # dau (model truyen sai tham so, hay model bo qua ket qua dung
-            # roi tu bia lai o buoc tra loi cuoi).
             lines.append("<details><summary>Chi tiet tool call (tham so + ket qua rut gon)</summary>")
             lines.append("")
             for idx, t in enumerate(tools_called, 1):
@@ -229,10 +201,6 @@ SCENARIO_1 = [
     },
     {
         "question": "Luc 21:00 ngay 11/09/2026 (UTC) tau do dang o dau?",
-        # 21:00 nam giua 2 ban tin AIS that (19:47 va 21:33, cach nhau ~1h45p
-        # - khong lien tuc nhu binh thuong) -> tra loi dung la toa do NOI
-        # SUY (21.7450, 114.0214, item #7), khong phai toa do ban tin gan
-        # nhat (21.79, 114.08) nhu truoc khi co noi suy - chap nhan ca 2.
         "expect_any": ["21.74", "114.02", "21:33", "21.79", "114.08"],
     },
 ]
@@ -250,10 +218,6 @@ SCENARIO_2 = [
     },
     {
         "question": "Ngay 12/09 no di duoc quang duong dai hon hay ngan hon ngay 11/09?",
-        # Chap nhan ca 2 cach dien dat tuong duong ve mat logic: "ngay 12
-        # ngan hon" (dung tu hoi) hoac "ngay 11 dai hon" (cung 1 su that,
-        # phat hien that: model tra loi dung so lieu 447>213 nhung dien dat
-        # theo huong nguoc lai cua cau hoi, bi FAIL oan neu chi chap 1 huong).
         "expect_any": ["ngắn hơn", "ngan hon", "ít hơn", "it hon", "dài hơn", "dai hon"],
         "note": "ground truth: day11=447.9nm > day12=213.6nm -> ngan hon (hoac tuong duong: ngay 11 dai hon)",
     },
