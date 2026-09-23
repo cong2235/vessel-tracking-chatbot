@@ -1,11 +1,12 @@
 # API Reference
 
-Base URL mặc định: `http://localhost:8000` (xem `APP_HOST`/`APP_PORT` trong
-`.env`). OpenAPI tự sinh (Swagger UI) có sẵn tại `/docs` khi chạy server.
+Base URL mặc định: `http://localhost:8000` (cấu hình qua `APP_HOST`/`APP_PORT`
+trong `.env`). Tài liệu OpenAPI tự sinh (Swagger UI) có sẵn tại `/docs` khi
+server đang chạy.
 
 ## GET /health
 
-Kiểm tra server + kết nối DB.
+Kiểm tra tình trạng server và kết nối cơ sở dữ liệu.
 
 ```bash
 curl http://localhost:8000/health
@@ -17,7 +18,7 @@ curl http://localhost:8000/health
 
 ## POST /conversations
 
-Tạo hội thoại mới.
+Tạo một hội thoại mới.
 
 ```bash
 curl -X POST http://localhost:8000/conversations \
@@ -28,11 +29,11 @@ curl -X POST http://localhost:8000/conversations \
 {"id": "uuid", "title": "Theo doi tau X", "created_at": "...", "updated_at": "..."}
 ```
 
-`title` không bắt buộc.
+Trường `title` không bắt buộc.
 
 ## GET /conversations?limit&offset
 
-Liệt kê hội thoại, mới nhất trước. `limit` mặc định 50 (tối đa 200),
+Liệt kê hội thoại, sắp xếp mới nhất trước. `limit` mặc định 50 (tối đa 200),
 `offset` mặc định 0.
 
 ```bash
@@ -41,8 +42,8 @@ curl "http://localhost:8000/conversations?limit=10&offset=0"
 
 ## GET /conversations/{id}/messages
 
-Toàn bộ tin nhắn của 1 hội thoại (persist bền vững — restart server vẫn
-xem được). 404 nếu không tồn tại.
+Toàn bộ tin nhắn của một hội thoại, lưu trữ bền vững (còn nguyên sau khi
+khởi động lại server). Trả về 404 nếu hội thoại không tồn tại.
 
 ```bash
 curl http://localhost:8000/conversations/<id>/messages
@@ -50,7 +51,8 @@ curl http://localhost:8000/conversations/<id>/messages
 
 ## DELETE /conversations/{id}
 
-Xoá hội thoại (cascade xoá cả messages, memory_chunks). 404 nếu không tồn tại.
+Xoá hội thoại, cascade xoá cả tin nhắn và các đoạn bộ nhớ liên quan. Trả về
+404 nếu hội thoại không tồn tại.
 
 ```bash
 curl -X DELETE http://localhost:8000/conversations/<id>
@@ -58,7 +60,7 @@ curl -X DELETE http://localhost:8000/conversations/<id>
 
 ## POST /conversations/{id}/chat — streaming (SSE)
 
-Endpoint chính. `message` bắt buộc, 1–4000 ký tự.
+Endpoint chính của hệ thống. Trường `message` bắt buộc, độ dài 1–4000 ký tự.
 
 ```bash
 curl -N -X POST http://localhost:8000/conversations/<id>/chat \
@@ -66,7 +68,7 @@ curl -N -X POST http://localhost:8000/conversations/<id>/chat \
   -d '{"message": "Cho toi thong tin ve tau KOTA GAYA"}'
 ```
 
-Response: `Content-Type: text/event-stream`, mỗi sự kiện dạng:
+Response có `Content-Type: text/event-stream`, mỗi sự kiện theo định dạng:
 
 ```
 event: <loai>
@@ -76,15 +78,15 @@ data: <json>
 
 ### Các loại sự kiện
 
-| Sự kiện | `data` | Khi nào |
+| Sự kiện | `data` | Ý nghĩa |
 |---|---|---|
-| `token` | chuỗi (mảnh text) | Model đang sinh câu trả lời, đến dần |
-| `tool_call` | `{"name": str, "arguments": {...}}` | Model quyết định gọi 1 tool |
-| `data` | `{"type": "geojson", "tool": str, "geojson": {...}, "summary": {...}}` | Tool trả về dữ liệu bản đồ (N2/N3) — GeoJSON Feature/FeatureCollection, KHÔNG đi qua context LLM. `summary` là chính kết quả tool đã bỏ `geojson` (vd. `distance_nm`, `avg_speed_knots`, `is_stale`, `is_interpolated`...) để UI vẽ thẻ thống kê mà không cần tự tính lại |
-| `done` | `{"answer": str}` | Kết thúc lượt, `answer` là toàn văn câu trả lời cuối (đã ghép từ các `token`) |
-| `error` | `{"message": str}` | LLM lỗi, tool lỗi không phục hồi được, hoặc vượt số lần lặp tool tối đa — kết nối vẫn đóng gọn gàng, không treo |
+| `token` | chuỗi (mảnh văn bản) | Một phần câu trả lời của model, phát dần theo luồng |
+| `tool_call` | `{"name": str, "arguments": {...}}` | Model quyết định gọi một tool |
+| `data` | `{"type": "geojson", "tool": str, "geojson": {...}, "summary": {...}}` | Dữ liệu bản đồ (GeoJSON Feature/FeatureCollection) tách khỏi ngữ cảnh gửi cho LLM. `summary` là kết quả của tool sau khi loại bỏ trường `geojson` (ví dụ `distance_nm`, `avg_speed_knots`, `is_stale`, `is_interpolated`), phục vụ hiển thị số liệu trên giao diện bản đồ |
+| `done` | `{"answer": str}` | Kết thúc lượt trả lời; `answer` là toàn văn câu trả lời cuối cùng, ghép từ các sự kiện `token` |
+| `error` | `{"message": str}` | Lỗi từ LLM, lỗi tool không khôi phục được, hoặc vượt số lần lặp tool tối đa. Kết nối được đóng an toàn, không bị treo |
 
-### Ví dụ luồng thật (rút gọn, đã chạy verify)
+### Ví dụ một luồng sự kiện
 
 ```
 event: token
@@ -105,8 +107,8 @@ data: {"answer": "**Hành trình của toàn bộ tàu thuộc Evergreen Marine 
 
 ## Mã lỗi HTTP
 
-| Code | Khi nào |
+| Mã | Trường hợp |
 |---|---|
 | 404 | `conversation_id` không tồn tại |
-| 422 | Body không hợp lệ (vd. `message` rỗng hoặc > 4000 ký tự) |
-| 200 (nhưng SSE có `event: error`) | Lỗi xảy ra SAU khi stream đã mở — không thể trả HTTP status code khác 200 giữa chừng |
+| 422 | Nội dung yêu cầu không hợp lệ (ví dụ `message` rỗng hoặc vượt quá 4000 ký tự) |
+| 200 (kèm `event: error` trong luồng) | Lỗi phát sinh sau khi kết nối SSE đã mở — không thể trả mã trạng thái HTTP khác 200 giữa chừng |
