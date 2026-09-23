@@ -45,10 +45,6 @@ MEMORY_NOTE_PREFIX = (
     "nham sang chu de/tau dang noi o cac luot gan nhat:\n"
 )
 
-# Cau dang "ghi nho giup toi...", "nho giup...", "hay nho rang..." -> luu
-# thanh 1 fact rieng, khong qua buoc tom tat LLM (xem _extract_pinned_fact).
-# So khop tren ban KHONG DAU de bat ca 2 dang co dau ("nhớ") lan khong dau
-# ("nho") nguoi dung/model co the dung.
 _REMEMBER_TRIGGER_RE = re.compile(r"ghi nho|nho giup|nho ho|hay nho|nho rang")
 
 

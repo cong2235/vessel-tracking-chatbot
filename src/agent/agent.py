@@ -95,7 +95,13 @@ def run_agent_turn_stream(
             tool_result = _execute_tool(tool_call.name, tool_call.arguments)
             llm_result, geojson = _split_geojson(tool_result)
             if geojson is not None:
-                yield {"event": "data", "data": {"type": "geojson", "tool": tool_call.name, "geojson": geojson}}
+                # summary = chinh llm_result (da bo geojson) - tai su dung so
+                # lieu tool da tinh san (distance_nm, avg_speed_knots...) de
+                # FE ve the thong ke tren ban do, khong phai tinh lai/bia them.
+                yield {
+                    "event": "data",
+                    "data": {"type": "geojson", "tool": tool_call.name, "geojson": geojson, "summary": llm_result},
+                }
             tool_message = {
                 "role": "tool",
                 "tool_call_id": tool_call.id,
