@@ -50,7 +50,7 @@ def _safe_print(text: str) -> None:
         print(text.encode(sys.stdout.encoding or "ascii", errors="replace").decode(sys.stdout.encoding or "ascii"))
 
 
-def run_turn(conversation_id, question: str) -> tuple[str, list[str]]:
+def run_turn(conversation_id, question: str) -> tuple[str, list[dict]]:
     store.append_message(conversation_id, "user", question)
 
     try:
@@ -76,12 +76,27 @@ def run_turn(conversation_id, question: str) -> tuple[str, list[str]]:
                 conversation_id, "tool", content=m.get("content"), tool_call_id=m.get("tool_call_id")
             )
 
-    tools_called = [
-        tc["function"]["name"]
+    # Ghep tung tool_call (ten + tham so, tu message assistant) voi dung
+    # ket qua tra ve cua no (message tool ke tiep, khop qua tool_call_id) -
+    # phat hien that dan den them: 1 cau tra loi tra ve DUNG ten tool nhung
+    # NOI DUNG sai (vd. gan nham vessel_id/ten tau) ma khong the chan doan
+    # duoc chi tu ten tool - can ca tham so LAN ket qua that de doi chieu.
+    tool_results_by_id = {
+        m["tool_call_id"]: m.get("content", "")
         for m in new_messages
-        if m.get("role") == "assistant" and m.get("tool_calls")
-        for tc in m["tool_calls"]
-    ]
+        if m.get("role") == "tool"
+    }
+    tools_called: list[dict] = []
+    for m in new_messages:
+        if m.get("role") == "assistant" and m.get("tool_calls"):
+            for tc in m["tool_calls"]:
+                tools_called.append(
+                    {
+                        "name": tc["function"]["name"],
+                        "arguments": tc["function"]["arguments"],
+                        "result": tool_results_by_id.get(tc["id"], ""),
+                    }
+                )
     return answer, tools_called
 
 
@@ -110,10 +125,11 @@ def run_scenario(name: str, turns: list[dict]) -> dict:
         expect_tool = turn.get("expect_tool")
 
         answer, tools_called = run_turn(conv["id"], question)
+        tool_names = [t["name"] for t in tools_called]
 
         checks_defined = bool(expect_any) or bool(expect_tool)
         text_ok = contains_any(answer, expect_any) if expect_any else None
-        tool_ok = any(t in tools_called for t in expect_tool) if expect_tool else None
+        tool_ok = any(t in tool_names for t in expect_tool) if expect_tool else None
         passed = None
         if checks_defined:
             checked_count += 1
@@ -125,8 +141,8 @@ def run_scenario(name: str, turns: list[dict]) -> dict:
 
         status = "" if passed is None else (" [OK]" if passed else " [FAIL]")
         _safe_print(f"  Luot {i}{status}: {question[:70]}")
-        if tools_called:
-            _safe_print(f"    tools: {tools_called}")
+        if tool_names:
+            _safe_print(f"    tools: {tool_names}")
         if expect_any:
             _safe_print(f"    ky vong noi dung 1 trong: {expect_any} -> {'PASS' if text_ok else 'FAIL'}")
         if expect_tool:
@@ -156,13 +172,33 @@ def run_scenario(name: str, turns: list[dict]) -> dict:
     }
 
 
+_RESULT_TRUNCATE_CHARS = 800
+
+
 def write_transcript(result: dict, filename: str) -> None:
     lines = [f"# {result['name']}", ""]
     for r in result["records"]:
         lines.append(f"## Luot {r['turn']}")
         lines.append(f"**Cau hoi:** {r['question']}")
-        if r["tools_called"]:
-            lines.append(f"**Tool da goi:** {', '.join(r['tools_called'])}")
+        tools_called = r["tools_called"]
+        if tools_called:
+            lines.append(f"**Tool da goi:** {', '.join(t['name'] for t in tools_called)}")
+            # Chi tiet tham so + ket qua (rut gon) - phat hien that dan den
+            # them: chi biet TEN tool da goi khong du de doi chieu khi cau
+            # tra loi cuoi noi dung sai du goi dung tool (vd. gan nham ten
+            # tau) - can ca tham so LAN ket qua that de xac dinh loi nam o
+            # dau (model truyen sai tham so, hay model bo qua ket qua dung
+            # roi tu bia lai o buoc tra loi cuoi).
+            lines.append("<details><summary>Chi tiet tool call (tham so + ket qua rut gon)</summary>")
+            lines.append("")
+            for idx, t in enumerate(tools_called, 1):
+                result_text = t["result"]
+                if len(result_text) > _RESULT_TRUNCATE_CHARS:
+                    result_text = result_text[:_RESULT_TRUNCATE_CHARS] + "...(rut gon)"
+                lines.append(f"{idx}. `{t['name']}({t['arguments']})`")
+                lines.append(f"   → `{result_text}`")
+            lines.append("")
+            lines.append("</details>")
         if r["note"]:
             lines.append(f"*({r['note']})*")
         lines.append(f"**Tra loi:** {r['answer']}")

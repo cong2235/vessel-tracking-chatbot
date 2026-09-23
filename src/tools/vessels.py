@@ -65,16 +65,7 @@ def search_vessel(query: str, limit: int = DEFAULT_LIMIT) -> list[dict[str, Any]
 
 
 def list_vessels_by_type(ship_type_substring: str, limit: int = 500) -> dict[str, Any]:
-    # ship_type_substring la tieng Anh (vd. "Tanker", "Cargo", "Fishing") -
-    # khop ILIKE voi ship_type_summary. LLM tu anh xa tu tieng Viet nguoi
-    # dung dung sang tu khoa nay (huong dan trong tool description).
-    #
-    # Tra ve dict (khong phai list tho) kem total_matched/has_more - truoc
-    # day tra ve list bi LIMIT am tham, khong co cach nao biet co bi cat bot
-    # hay khong (phat hien that: gop voi gioi han cua compare_journeys/
-    # get_multi_journey_geojson khien model tu bia so lieu tong hop khi tap
-    # tau vuot gioi han - xem SYSTEM_PROMPT quy tac 9 va
-    # docs/architecture.md muc 7).
+
     pattern = f"%{ship_type_substring}%"
     with get_cursor() as cur:
         cur.execute(

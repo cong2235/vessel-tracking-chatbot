@@ -54,3 +54,21 @@ def test_get_position_at_time_exact_match_is_not_interpolated():
     assert result["is_interpolated"] is False
     assert result["delta_seconds"] == 0
     assert abs(result["lat"] - 9.6735) < 1e-6
+
+
+def test_get_position_at_time_no_at_ts_returns_latest_point_not_earliest():
+    # Phat hien that: cau hoi "vi tri cuoi cung" khong co moc thoi gian cu
+    # the buoc model phai TU DOAN 1 at_ts - da tung doan sai (chon moc dau
+    # thay vi cuoi) va tra ve nham diem CU NHAT thay vi MOI NHAT. Bo trong
+    # at_ts phai luon tra ve diem cuoi cung that su (2026-09-12T11:48:54Z
+    # theo docstring dau file), khong duoc phu thuoc vao viec doan dung/sai.
+    result = get_position_at_time(EVER_VIVA_VESSEL_ID)
+    assert result is not None
+    assert result["event_ts"].startswith("2026-09-12 11:48:54")
+    assert result["is_interpolated"] is False
+    assert result["is_stale"] is False
+
+
+def test_get_position_at_time_no_at_ts_unknown_vessel_returns_none():
+    result = get_position_at_time("00000000-0000-0000-0000-000000000000")
+    assert result is None

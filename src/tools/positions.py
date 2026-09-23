@@ -1,12 +1,3 @@
-"""Tool: tìm vị trí AIS của tàu tại một thời điểm cụ thể.
-
-Noi suy tuyen tinh (linear interpolation) toa do giua 2 diem AIS lien ke
-truoc/sau at_ts khi ca 2 cung ton tai va khong trung khop mot diem du lieu
-that - de bai ghi ro day la diem cong. Cac truong khong the noi suy hop ly
-(course/heading - can noi suy vong tron, nav_status - trang thai roi rac)
-duoc lay tu diem GAN HON trong 2 diem, khong tu bia gia tri trung gian.
-"""
-
 from __future__ import annotations
 
 from typing import Any
@@ -20,12 +11,19 @@ _SELECT_FIELDS = """
     EXTRACT(EPOCH FROM (event_ts - %(at_ts)s::timestamptz)) AS delta_seconds
 """
 
+_SELECT_FIELDS_LATEST = """
+    vessel_id, event_ts, lat, lon, speed_knots, course_deg, heading_deg, nav_status
+"""
+
 
 def get_position_at_time(
     vessel_id: str,
-    at_ts: str,
+    at_ts: str | None = None,
     stale_threshold_hours: float = DEFAULT_STALE_THRESHOLD_HOURS,
 ) -> dict[str, Any] | None:
+    if at_ts is None:
+        return _get_latest_position(vessel_id)
+
     params = {"vid": vessel_id, "at_ts": at_ts}
     with get_cursor() as cur:
         cur.execute(
@@ -132,4 +130,41 @@ def _interpolate(before: dict[str, Any] | None, after: dict[str, Any] | None) ->
         "course_deg": nearer["course_deg"],
         "heading_deg": nearer["heading_deg"],
         "nav_status": nearer["nav_status"],
+    }
+
+
+def _get_latest_position(vessel_id: str) -> dict[str, Any] | None:
+    with get_cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT {_SELECT_FIELDS_LATEST}
+            FROM ais_positions
+            WHERE vessel_id = %(vid)s
+            ORDER BY event_ts DESC
+            LIMIT 1
+            """,
+            {"vid": vessel_id},
+        )
+        row = cur.fetchone()
+
+    if row is None:
+        return None
+
+    return {
+        "vessel_id": vessel_id,
+        "event_ts": str(row["event_ts"]),
+        "lat": row["lat"],
+        "lon": row["lon"],
+        "speed_knots": row["speed_knots"],
+        "course_deg": row["course_deg"],
+        "heading_deg": row["heading_deg"],
+        "nav_status": row["nav_status"],
+        "delta_seconds": 0,
+        "is_stale": False,  # day dung la diem moi nhat hien co, khong "cu" so voi chinh no
+        "is_interpolated": False,
+        "geojson": {
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [row["lon"], row["lat"]]},
+            "properties": {"vessel_id": vessel_id, "event_ts": str(row["event_ts"])},
+        },
     }
