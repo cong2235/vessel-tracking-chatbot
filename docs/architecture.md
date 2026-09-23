@@ -16,12 +16,12 @@ flowchart TB
 
     subgraph Agent["src/agent/"]
         LOOP["agent.py<br/>vòng lặp tool-calling"]
-        MEM["memory.py<br/>cửa sổ ngắn hạn + bộ nhớ dài hạn"]
+        MEM["memory.py<br/>cửa sổ ngắn hạn + bộ nhớ dài hạn + pin fact"]
         STORE["store.py<br/>persist hội thoại"]
     end
 
     subgraph Models["src/models/"]
-        LLM["llm_client.py<br/>chat_once / chat_stream"]
+        LLM["llm_client.py<br/>chat_once / chat_stream + retry"]
         EMB["embeddings.py"]
         RR["reranker.py"]
     end
@@ -29,8 +29,8 @@ flowchart TB
     subgraph Tools["src/tools/ (R1)"]
         T1["vessels.py"]
         T2["ownership.py"]
-        T3["positions.py"]
-        T4["journeys.py"]
+        T3["positions.py<br/>+ nội suy tuyến tính"]
+        T4["journeys.py<br/>+ compare_journeys, phân trang"]
         T5["dark_gaps.py"]
     end
 
@@ -56,7 +56,8 @@ flowchart TB
 ```
 
 **Không dùng framework agent (LangChain/LangGraph)** — vòng lặp tool-calling
-tự viết (~100 dòng, `src/agent/agent.py`) để giải thích được từng bước.
+tự viết (~135 dòng, `src/agent/agent.py`) để giải thích được từng bước; lý do
+đầy đủ: `docs/research.md` mục 5.
 
 ## 2. Luồng xử lý 1 câu hỏi
 
@@ -73,8 +74,8 @@ sequenceDiagram
     U->>API: POST /conversations/{id}/chat {message}
     API->>DB: append_message(role=user)  # luu truoc, tranh mat cau hoi neu loi
     API->>Mem: build_llm_context(id, message)
-    Mem->>DB: list_messages, memory_chunks (neu vuot nguong)
-    Mem-->>API: [system?] + cua so ngan han
+    Mem->>DB: list_messages, pinned facts, memory_chunks (neu vuot nguong)
+    Mem-->>API: [system: pinned + relevant?] + cua so ngan han
     API->>Agent: run_agent_turn_stream(messages)
     loop toi da MAX_TOOL_ITERATIONS
         Agent->>LLM: chat_stream(messages, tools)
@@ -85,8 +86,8 @@ sequenceDiagram
             Agent->>Tool: goi ham that (SQL tham so hoa)
             Tool->>DB: SELECT ...
             Tool-->>Agent: dict {..., geojson?}
-            Agent-->>U: SSE event: data {geojson}  (neu co, N2/N3)
-            Agent->>LLM: tool result (KHONG geojson) 
+            Agent-->>U: SSE event: data {geojson, summary}  (neu co, N2/N3)
+            Agent->>LLM: tool result (KHONG geojson)
         else khong con tool_call
             Agent-->>U: SSE event: done {answer}
         end
@@ -97,7 +98,9 @@ sequenceDiagram
 Điểm quan trọng: **dữ liệu bản đồ (geojson) tách khỏi nội dung gửi LLM**
 (`agent.py::_split_geojson`) — LLM chỉ thấy phần tóm tắt (số tàu, số điểm,
 bbox), toạ độ chi tiết đi thẳng tới UI qua sự kiện `data`, đúng yêu cầu N2/N3
-"dữ liệu lớn không đi qua model".
+"dữ liệu lớn không đi qua model". Sự kiện `data` còn mang thêm `summary`
+(chính là phần tóm tắt đó) để UI vẽ thẻ thống kê cạnh bản đồ mà không cần tự
+tính lại hay suy diễn thêm số liệu.
 
 ## 3. Thiết kế bộ nhớ (R3)
 
@@ -105,29 +108,31 @@ bbox), toạ độ chi tiết đi thẳng tới UI qua sự kiện `data`, đún
 
 1. **Cửa sổ ngắn hạn**: nếu tổng số message ≤ `CONTEXT_WINDOW_TURNS` (đếm
    theo message, không phải "lượt"), dùng nguyên văn toàn bộ lịch sử.
-2. **Vượt ngưỡng**: message cũ hơn cửa sổ được **tóm tắt gia tăng** (chỉ
-   phần mới rơi ra khỏi cửa sổ mỗi lần, không tóm tắt lại từ đầu) bằng LLM
-   → nhúng vector (`bge-m3`, đa ngôn ngữ, tóm tắt viết bằng **tiếng Anh** dù
-   hội thoại gốc tiếng Việt — embedding/rerank phân biệt tốt hơn với tiếng
-   Anh, không ảnh hưởng câu trả lời cuối vì đó luôn bằng tiếng Việt) → lưu
-   `memory_chunks`.
-3. **Truy xuất khi trả lời**: nhúng câu hỏi hiện tại → lấy top-20 ứng viên
-   theo cosine similarity (pgvector `<=>`) → **rerank** bằng cross-encoder
-   (`bge-reranker-base`) → lấy top-3 → chèn thành 1 message `system` đặt
-   TRƯỚC cửa sổ ngắn hạn, có câu dẫn nhấn mạnh đây là thông tin người dùng
-   yêu cầu ghi nhớ (giảm thiên vị model ưu tiên ngữ cảnh gần đây).
+2. **Vượt ngưỡng**: với các message cũ hơn cửa sổ, mỗi message của user được
+   kiểm tra qua regex nhận diện câu "ghi nhớ" (không dấu, bắt cả 2 dạng có
+   dấu/không dấu):
+   - **Khớp** → lưu thẳng thành 1 **fact tường minh** (`memory_chunks`,
+     `is_pinned = true`), không qua bước tóm tắt.
+   - **Không khớp** → gộp vào lô **tóm tắt gia tăng** (chỉ phần mới rơi ra
+     khỏi cửa sổ mỗi lần) bằng LLM → nhúng vector (`bge-m3`, tóm tắt viết
+     bằng **tiếng Anh** — lý do: `docs/research.md` mục 4.2) → lưu
+     `memory_chunks` với `is_pinned = false`.
+3. **Truy xuất khi trả lời**:
+   - Mọi fact có `is_pinned = true` của hội thoại: **luôn lấy toàn bộ**,
+     không lọc theo similarity.
+   - Các chunk `is_pinned = false`: nhúng câu hỏi hiện tại → lấy top-20 ứng
+     viên theo cosine similarity (pgvector `<=>`) → **rerank** bằng
+     cross-encoder (`bge-reranker-base`) → lấy top-3.
+   - Gộp cả 2 nhóm (loại trùng theo `id`), chèn thành 1 message `system` đặt
+     TRƯỚC cửa sổ ngắn hạn, có câu dẫn nhấn mạnh đây là thông tin người dùng
+     yêu cầu ghi nhớ.
 4. Cắt cửa sổ **an toàn**: không bao giờ cắt giữa cặp
    `assistant(tool_calls)`/`tool`-result.
 
-**So sánh 4 chiến lược bộ nhớ đã cân nhắc** (chi tiết lý do chọn: xem
-`docs/research.md`):
-
-| Chiến lược | Ưu | Nhược | Dùng ở đâu |
-|---|---|---|---|
-| Cửa sổ trượt (sliding window) | Đơn giản, không mất chi tiết gần đây | Mất hoàn toàn thông tin cũ | Luôn dùng cho N message gần nhất |
-| Tóm tắt (summarization) | Nén được lượng lớn hội thoại | Có thể mất chi tiết khi model tóm tắt kém | Cho message rơi khỏi cửa sổ |
-| Truy xuất vector (embedding retrieval) | Lấy đúng phần liên quan theo ngữ nghĩa, không phụ thuộc thứ tự thời gian | Độ chính xác phụ thuộc chất lượng embedding, kém khi nhiều chunk ngắn/giống nhau | Truy xuất từ `memory_chunks` |
-| Kết hợp (đã chọn) | Bù trừ nhược điểm của từng cái | Phức tạp hơn, nhiều điểm có thể lỗi (đã gặp thật — xem mục 6) | Toàn bộ pipeline R3 |
+**So sánh các chiến lược bộ nhớ đã cân nhắc, case study 3 bug thật tìm được,
+và lý do bổ sung cơ chế pin fact**: xem `docs/research.md` mục 6 (phần này
+đã được viết lại đầy đủ và chi tiết hơn nhiều so với bản trước, gồm cả
+phương pháp thử nghiệm và bảng root-cause).
 
 ## 4. Schema database
 
@@ -142,7 +147,11 @@ Xem đầy đủ tại [`db/schema.sql`](../db/schema.sql). Tóm tắt quyết �
   trigram cho `shipname`/`company_name` (fuzzy search).
 - Bảng ứng dụng (`conversations`, `messages`, `memory_chunks`) tách biệt
   hoàn toàn khỏi dữ liệu tàu biển (R1), có FK `ON DELETE CASCADE`.
-- Idempotent: pipeline luôn `TRUNCATE` bảng đích trước khi nạp lại.
+- `memory_chunks.is_pinned` (boolean, mặc định `false`): đánh dấu fact tường
+  minh (mục 3) — luôn được truy xuất, bỏ qua bước lọc similarity/rerank.
+- Idempotent: pipeline luôn `TRUNCATE` bảng đích trước khi nạp lại;
+  `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` cho migration an toàn trên DB
+  đã tồn tại (vd. khi thêm `is_pinned` sau này mà không cần drop bảng).
 
 ## 5. Danh sách tool
 
@@ -152,14 +161,24 @@ Xem đầy đủ tại [`db/schema.sql`](../db/schema.sql). Tóm tắt quyết �
 | `get_vessel_info` | vessel_id | Thông tin tĩnh + ownership đầy đủ |
 | `get_company_vessels` | tên công ty, role? | Tàu theo công ty, tự tìm biến thể tên |
 | `list_vessels_by_type` | từ khoá loại tàu (EN) | Lọc theo loại tàu (N3) |
-| `get_position_at_time` | vessel_id, thời điểm | Vị trí gần nhất + độ lệch thời gian |
+| `get_position_at_time` | vessel_id, thời điểm | Vị trí gần nhất, **nội suy tuyến tính** giữa 2 điểm bao quanh nếu có đủ cả 2 (điểm cộng theo đề bài), kèm cờ `is_interpolated`/`is_stale` |
 | `get_journey` | vessel_id, khoảng thời gian | 1 hành trình, kèm GeoJSON |
-| `get_multi_journey_geojson` | list vessel_id, khoảng thời gian | Nhiều hành trình (N3), giới hạn 50 tàu/lần, đơn giản hoá đường bằng `ST_Simplify` |
+| `get_multi_journey_geojson` | list vessel_id, khoảng thời gian, `page`/`page_size` | Nhiều hành trình (N3), **phân trang thật** qua `has_more`/`total_vessels_requested` thay vì cắt cứng, đơn giản hoá đường bằng `ST_Simplify` |
+| `compare_journeys` | list vessel_id, khoảng thời gian | So sánh quãng đường/tốc độ nhiều tàu, **tính và xếp hạng sẵn trong 1 câu SQL** (tránh agent phải gọi `get_journey` lặp từng tàu, dễ chạm `MAX_TOOL_ITERATIONS`) |
 | `get_dark_gaps` | vessel_id?, order_by | Sự kiện mất tín hiệu AIS, kèm GeoJSON |
 
-Nguyên tắc chung: SQL tham số hoá, chỉ SELECT có LIMIT, không dữ liệu thì
-trả `None`/`[]` (R4). Tool nào trả `geojson` sẽ tự động được tách sang sự
-kiện `data` (N2/N3), không cần khai báo gì thêm ở tầng agent.
+Nguyên tắc chung: SQL tham số hoá, chỉ SELECT có LIMIT, không dữ liệu thì trả
+`None`/`[]` (R4). Tool nào trả `geojson` sẽ tự động được tách sang sự kiện
+`data` kèm `summary` (N2/N3), không cần khai báo gì thêm ở tầng agent.
+
+`SYSTEM_PROMPT` (`src/prompts/system_prompts.py`) có 2 quy tắc bổ sung sau
+review, gắn trực tiếp với 2 tool mới/sửa ở trên:
+- Quy tắc 8: bắt buộc nêu rõ toạ độ khi trả lời câu hỏi vị trí (tránh lặp lại
+  lỗi thật đã phát hiện — xem mục 7).
+- Quy tắc 9: cấm tự ước lượng số liệu tổng hợp trên tập tàu lớn nếu không có
+  tool nào thực sự tính ra con số đó — bắt buộc dùng `compare_journeys` hoặc
+  nêu rõ giới hạn (vd. "chỉ tính được N/M tàu do giới hạn 1 lần gọi") thay vì
+  suy diễn 1 con số nghe hợp lý.
 
 ## 6. API
 
@@ -177,69 +196,66 @@ tại `/docs` khi chạy server.
 
 ## 7. Hạn chế đã biết
 
-Ghi trung thực để không đánh giá quá cao mức độ hoàn thiện:
+Ghi trung thực để không đánh giá quá cao mức độ hoàn thiện — mục này đã được
+cập nhật sau 1 vòng review độc lập, các mục có nhãn **[ĐÃ SỬA]** là phát hiện
+thật từ vòng review đó và đã khắc phục, kèm bằng chứng.
 
+- **[ĐÃ SỬA] Câu hỏi vị trí đôi khi bỏ sót toạ độ trong câu trả lời cuối** —
+  phát hiện thật khi soát lại `results/scenario_1.md` lượt 4: tool
+  `get_position_at_time` trả về đúng lat/lon, nhưng model chỉ mô tả
+  `nav_status`/tốc độ rồi bỏ qua toạ độ, lạc đề so với câu hỏi "đang ở đâu".
+  Đã thêm quy tắc 8 vào `SYSTEM_PROMPT` bắt buộc nêu rõ toạ độ. Xác nhận:
+  chạy lại, lượt này PASS với toạ độ cụ thể (`results/verify_summary.txt`).
+- **[ĐÃ SỬA] `get_multi_journey_geojson` giới hạn cứng 50 tàu/lần** — trước
+  đây chỉ 50 tàu đầu tiên được vẽ khi hỏi "toàn bộ tàu cargo" (628 tàu trong
+  data), phần còn lại bị bỏ qua âm thầm. Đã thêm phân trang thật
+  (`page`/`page_size`/`has_more`/`total_vessels_requested`) — model có thể tự
+  gọi lại với `page+1` khi cần đầy đủ.
+- **[ĐÃ SỬA] So sánh chỉ tiêu trên nhiều tàu không scale** — trước đây hỏi
+  "trong N tàu, tàu nào xa nhất" khiến model gọi `get_journey` TỪNG TÀU MỘT,
+  chạm `MAX_TOOL_ITERATIONS=8` với N lớn → trả sự kiện `error`. Đã thêm tool
+  `compare_journeys` tính và xếp hạng ngay trong 1 câu SQL.
+- **[ĐÃ SỬA MỘT PHẦN] R3 (bộ nhớ dài hạn)** — trước đây không đạt độ tin cậy
+  100% khi hội thoại dài, gốc rễ là cơ chế "kết hợp" (tóm tắt + embedding +
+  rerank) phụ thuộc hoàn toàn vào việc model tự ưu tiên đúng ngữ cảnh trong 1
+  khối văn bản dài. Đã bổ sung cơ chế pin fact tường minh (tách câu "ghi nhớ
+  giúp tôi..." ra khỏi luồng tóm tắt ngữ nghĩa, luôn đưa vào context không
+  qua bước lọc điểm số) — xem `docs/research.md` mục 6.3 để biết đầy đủ đánh
+  đổi. Xác nhận: chạy lại đầy đủ 5 kịch bản, Kịch bản 3 lượt 12/13 PASS
+  (`results/scenario_3.md`), tổng thể 13/13 (`results/verify_summary.txt`).
+  **Vẫn cần lưu ý**: đây là cải thiện có cơ sở kỹ thuật rõ ràng (loại bỏ 1
+  lớp bất định), không phải "sửa dứt điểm mọi trường hợp" — cơ chế pin chỉ
+  bắt được câu nói đúng mẫu ("ghi nhớ", "nhớ giúp"...); người dùng diễn đạt
+  hoàn toàn khác đi vẫn đi qua đường tóm tắt ngữ nghĩa với độ tin cậy như đã
+  ghi nhận ở phần case study.
 - **Không có auth/rate limiting** — bất kỳ ai cũng gọi được mọi
   `conversation_id`. Chấp nhận được cho bài test, KHÔNG chấp nhận được cho
   production thật.
 - **Không có connection pool** — mỗi lời gọi tool mở/đóng 1 connection
   Postgres riêng. Ở quy mô bài test không vấn đề gì; tải cao cần
-  `psycopg2.pool` hoặc PgBouncer.
-- **R3 (bộ nhớ dài hạn) KHÔNG đạt độ tin cậy 100%, đây là điểm yếu lớn
-  nhất của hệ thống — ghi nhận trung thực bằng dữ liệu thật, không tô
-  hồng.** Quá trình phát triển đã tìm và sửa 3 bug thật: (1) bản tóm tắt bỏ
-  mất thông tin cần nhớ dù văn bản gốc có đủ (sửa bằng prompt siết chặt),
-  (2) ngưỡng similarity 0.5 loại bỏ cả chunk đúng nhất — điểm cosine của
-  `bge-m3` trên tóm tắt ngắn rất hẹp (0.24–0.35), (3) embedding một mình
-  không đủ phân biệt khi có 11+ chunk cạnh tranh — đã thêm rerank
-  (cross-encoder) để bù. Sau cả 3 fix: 1 lần chạy độc lập đạt 2/2, nhưng
-  1 lần chạy đầy đủ khác (cùng lúc với 4 kịch bản còn lại,
-  `results/scenario_3.md`) lại quay về 0/2 — model nhầm sang tàu vừa nhắc
-  gần nhất thay vì tàu đã yêu cầu ghi nhớ ở lượt 1. Kết luận: 3 fix đúng và
-  cần thiết (xác nhận qua unit test + ít nhất 1 lần verify thành công),
-  nhưng độ tin cậy tổng thể vẫn phụ thuộc vào tính không xác định của LLM
-  20B tham số — cần retrieval tinh vi hơn (hybrid keyword+vector, hoặc lưu
-  "fact" tường minh riêng cho yêu cầu "ghi nhớ" thay vì gộp chung vào tóm
-  tắt ngữ nghĩa) hoặc model lớn hơn để đạt độ tin cậy production thật.
-- **`get_multi_journey_geojson` giới hạn cứng 50 tàu/lần** — với truy vấn
-  kiểu "toàn bộ tàu cargo" (628 tàu trong data), chỉ 50 tàu đầu tiên được
-  vẽ. Đây là giới hạn thiết kế có chủ đích (tránh payload khổng lồ), nhưng
-  chưa có cơ chế phân trang thật (trả trang tiếp theo) — chỉ cắt bớt.
-- **So sánh chỉ tiêu (vd. "tàu nào xa nhất") trên nhiều tàu không scale** —
-  phát hiện thật khi chạy Kịch bản 5: với câu hỏi "trong số 33 tàu, tàu nào
-  đi xa nhất", model gọi `get_journey` TỪNG TÀU MỘT (không có tool tổng hợp
-  "so sánh N tàu cùng lúc"), cần tới 33 lượt gọi tool nhưng
-  `MAX_TOOL_ITERATIONS=8` chặn lại giữa chừng → trả sự kiện `error`. Hướng
-  sửa đúng: thêm 1 tool kiểu `compare_journey_distances(vessel_ids, ...)`
-  tính toán và so sánh ngay trong SQL (1 lời gọi, không cần LLM lặp), chưa
-  có thời gian implement trong 7 ngày.
+  `psycopg2.pool` hoặc PgBouncer (tính toán cụ thể: mục 9).
 - **Đã thêm retry cho lỗi mạng/server tạm thời** (`tenacity`, 3 lần, backoff
-  tăng dần) sau khi phát hiện thật: 1 lỗi `500 Internal Server Error`
-  thoáng qua từ Cloudflare làm crash toàn bộ script chạy kịch bản đang thực
-  hiện. Chỉ retry lỗi 5xx/kết nối, không retry lỗi 4xx (request sai thì thử
-  lại cũng sẽ sai như vậy). **Lưu ý thật**: ở 1 lần chạy khác (Kịch bản 5,
-  lượt 2-3, `results/scenario_5.md`), Cloudflare trả lỗi 500 KÉO DÀI hơn cả
-  3 lần retry (~10s) — đây là rủi ro vận hành thật của việc dùng hạ tầng
-  inference dùng chung/giá rẻ, không phải lỗi code. Production thật cần
-  theo dõi (alerting) + có thể cần fallback sang provider khác khi 1
-  provider downtime kéo dài.
+  tăng dần) sau khi phát hiện thật 1 lỗi `500` thoáng qua làm crash kịch bản
+  đang chạy. Chỉ retry lỗi 5xx/kết nối, không retry lỗi 4xx. **Lưu ý thật**: ở
+  1 lần chạy khác (Kịch bản 5, lượt 2–3), Cloudflare trả lỗi 500 KÉO DÀI hơn
+  cả 3 lần retry (~10s) — rủi ro vận hành thật của hạ tầng inference dùng
+  chung/giá rẻ, không phải lỗi code. Production thật cần alerting + có thể
+  cần fallback provider.
 - **Không có observability đầy đủ** — chỉ có log text (`src/utils/logger.py`),
   chưa có structured logging (JSON), metrics (Prometheus), hay tracing.
-- **`gpt-oss-20b` qua Cloudflare có vài quirk đã gặp khi test thật**: đôi
-  khi rò rỉ token nội bộ vào tên tool (vd. `get_vessel_info<|channel|>analysis`)
-  — tự phục hồi ở lần gọi kế tiếp nhờ cơ chế báo lỗi tool không tồn tại,
-  không crash nhưng tốn 1 vòng lặp; đôi khi lặp lại 1 tham số 2 lần trong
-  cùng 1 lời gọi tool (không ảnh hưởng kết quả vì SQL có `GROUP BY`/`ANY`,
-  nhưng lãng phí token).
-- **UI (N1) chưa test trên trình duyệt thật trong môi trường phát triển
-  này** — đã verify bằng `curl` rằng file được serve đúng và toàn bộ luồng
-  SSE/geojson hoạt động đúng ở tầng API, nhưng chưa tận mắt xác nhận
-  render trên Chrome/Firefox thật.
+- **`gpt-oss-20b` qua Cloudflare có vài quirk đã gặp khi test thật** — bảng
+  đầy đủ (triệu chứng/nguyên nhân/cách khắc phục): `docs/research.md` mục 1.3.
+- **UI (N1) đã được viết lại (markdown render, hiển thị "quá trình xử lý"
+  tool-call, giao diện tối) sau review, nhưng nên tự kiểm tra lại bằng mắt
+  trên trình duyệt thật 1 lần trước khi bàn giao** — môi trường phát triển
+  này verify được đầy đủ ở tầng API (curl, SSE, cấu trúc sự kiện) nhưng không
+  có công cụ trình duyệt để tự chụp lại giao diện.
 
 ## 8. Độ trễ và chi phí ước tính
 
-Đo thực tế trong quá trình phát triển (Cloudflare Workers AI,
-`gpt-oss-20b` + `bge-m3` + `bge-reranker-base`):
+### 8.1. Đo thực tế trong quá trình phát triển
+
+(Cloudflare Workers AI, `gpt-oss-20b` + `bge-m3` + `bge-reranker-base`):
 
 | Việc | Thời gian đo thực tế |
 |---|---|
@@ -249,27 +265,85 @@ Ghi trung thực để không đánh giá quá cao mức độ hoàn thiện:
 | 1 lượt chat phức tạp (2 tool call, vd. N3 nhiều tàu) | ~15–25s |
 | Tóm tắt + nhúng 1 đoạn hội thoại cũ (R3) | ~5–8s |
 
-Chi phí (giá niêm yết Cloudflare Workers AI lúc viết tài liệu):
-- `gpt-oss-20b`: $0.2/triệu token input, $0.3/triệu token output.
-- `bge-m3` (embedding): tính theo neurons, rất rẻ (~vài phần nghìn USD/1000 lượt).
-- `bge-reranker-base`: $0.00311/triệu token input.
+### 8.2. Mô hình chi phí
 
-Với quy mô bài test (vài trăm lượt hỏi khi chấm), chi phí LLM ước tính dưới
-1 USD.
+Giá niêm yết Cloudflare Workers AI tại thời điểm viết tài liệu (cần đối
+chiếu lại giá mới nhất trước khi dùng cho quyết định thật):
+- `gpt-oss-20b`: $0.2 / triệu token input, $0.3 / triệu token output.
+- `bge-m3` (embedding): tính theo neurons, rất rẻ (~vài phần nghìn USD/1000 lượt).
+- `bge-reranker-base`: $0.00311 / triệu token input.
+
+**Công thức ước tính chi phí LLM cho 1 lượt hỏi trung bình** (quan sát thực
+tế: 1 lượt đơn giản dùng ~800–1500 token input gồm system prompt + tool specs
++ lịch sử ngắn hạn, ~150–400 token output):
+
+```
+chi_phi_1_luot ≈ (token_input / 1_000_000 × 0.2) + (token_output / 1_000_000 × 0.3)
+              ≈ (1200 / 1_000_000 × 0.2) + (250 / 1_000_000 × 0.3)
+              ≈ $0.00031 / lượt
+```
+
+Với quy mô chấm bài (ước tính vài trăm lượt hỏi), chi phí LLM **dưới 1 USD**
+— khớp với quan sát thực tế trong quá trình phát triển (đã chạy hàng trăm
+lượt test mà không phát sinh chi phí đáng kể).
+
+**Ngoại suy cho quy mô sản xuất nhỏ** (ví dụ 10.000 lượt hỏi/ngày — một đội
+phân tích vài chục người dùng liên tục):
+
+```
+10,000 lượt/ngày × $0.00031/lượt ≈ $3.1/ngày ≈ $93/tháng (chỉ riêng LLM)
+```
+
+Cộng thêm embedding (rẻ không đáng kể ở quy mô này) và hạ tầng Postgres tự
+quản lý (biến động theo nhà cung cấp, không ước tính ở đây vì phụ thuộc lựa
+chọn hạ tầng cụ thể — xem mục 9). Con số trên chỉ để minh hoạ **bậc độ lớn**
+(order of magnitude), không phải cam kết chi phí thật.
 
 ## 9. Hướng mở rộng khi dữ liệu lên vài chục triệu điểm/ngày
 
+### 9.1. Ước tính quy mô
+
+1 dòng `ais_positions` hiện có 11 cột dữ liệu + 1 cột hình học generated —
+kích thước thô ước tính **~150–200 byte/dòng** (bao gồm overhead index).
+Với "vài chục triệu điểm/ngày" (lấy mốc 30 triệu/ngày để tính):
+
+```
+Dữ liệu thô mỗi ngày   ≈ 30,000,000 × 180 byte ≈ 5.4 GB/ngày
+Index (geom GiST + B-tree vessel_id/event_ts) ≈ thêm ~30-50% dung lượng
+Tổng thực tế mỗi ngày  ≈ ~7-8 GB/ngày
+Giữ 1 năm không downsample ≈ ~2.5-3 TB — KHÔNG khả thi trên 1 node Postgres
+đơn lẻ không partition/không downsample.
+```
+
+Đây là con số ước tính bậc độ lớn để minh hoạ mức độ cấp thiết của các hướng
+mở rộng dưới đây, không phải đo đạc trên hạ tầng thật (bài test dùng 3
+ngày × ~57.000 điểm/ngày, nhỏ hơn ~500 lần so với kịch bản này).
+
+### 9.2. Các hướng mở rộng cụ thể
+
 - **Partition bảng `ais_positions` theo thời gian** (range partition theo
-  ngày/tuần) — giữ index nhỏ, query theo khoảng thời gian chỉ quét đúng
-  partition liên quan.
-- **Ingestion streaming thay vì batch COPY** — dữ liệu AIS thực tế đến
-  liên tục (Kafka/message queue), cần pipeline nạp tăng dần thay vì nạp lại
-  toàn bộ file mỗi lần.
+  ngày/tuần) — giữ index nhỏ trên mỗi partition, query theo khoảng thời gian
+  (đa số truy vấn thực tế, xem R4.b/c) chỉ quét đúng partition liên quan thay
+  vì toàn bảng nhiều TB. Postgres hỗ trợ partition pruning tự động khi điều
+  kiện `WHERE` khớp cột partition.
+- **Ingestion streaming thay vì batch COPY** — dữ liệu AIS thực tế đến liên
+  tục (Kafka/message queue), cần pipeline nạp tăng dần (micro-batch theo
+  phút, không phải nạp lại toàn bộ file như `scripts/load_data.py` hiện tại
+  — vốn thiết kế cho bài toán nạp 1 lần từ CSV tĩnh).
 - **Read replica** cho tầng truy vấn (R1), tách khỏi write path của
-  ingestion, tránh block lẫn nhau.
+  ingestion, tránh 2 loại tải (ghi liên tục tốc độ cao vs đọc theo yêu cầu
+  người dùng) tranh chấp tài nguyên trên cùng 1 node.
 - **Downsample/aggregate trước khi lưu lâu dài** — dữ liệu vị trí cũ hơn X
-  ngày có thể giảm mật độ điểm (đã áp dụng ý tưởng này ở quy mô nhỏ qua
-  `ST_Simplify` trong `get_multi_journey_geojson`).
-- **Connection pool + async DB driver** (asyncpg) nếu tải đồng thời cao.
-- **Cache** kết quả truy vấn phổ biến (Redis) cho các câu hỏi lặp lại
-  nhiều (vd. "tàu nào mất tín hiệu lâu nhất" không đổi trong ngày).
+  ngày giảm mật độ điểm (đã áp dụng ý tưởng này ở quy mô nhỏ qua
+  `ST_Simplify` trong `get_multi_journey_geojson`, nhưng đó là giảm khi TRẢ
+  KẾT QUẢ — ở quy mô lớn cần giảm khi LƯU, vd. downsample về 1 điểm/5 phút
+  cho dữ liệu quá X ngày tuổi thay vì giữ nguyên tần suất AIS gốc).
+- **Connection pool + async DB driver** (`asyncpg`) nếu tải đồng thời cao —
+  mô hình hiện tại (mỗi tool mở 1 connection riêng, `psycopg2` đồng bộ) chấp
+  nhận được ở quy mô bài test nhưng sẽ nghẽn ở vài trăm request đồng thời.
+- **Cache** kết quả truy vấn phổ biến (Redis) cho các câu hỏi lặp lại nhiều
+  và ít thay đổi trong ngày (vd. "tàu nào mất tín hiệu lâu nhất" — chỉ đổi
+  khi có dark gap mới, có thể cache với TTL ngắn).
+- **Vector DB chuyên dụng** (Qdrant/Milvus) thay pgvector nếu số hội thoại
+  đồng thời tăng mạnh (hàng triệu `memory_chunks`) — xem so sánh đầy đủ ở
+  `docs/research.md` mục 3.
