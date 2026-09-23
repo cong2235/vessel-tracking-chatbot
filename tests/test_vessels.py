@@ -63,11 +63,23 @@ def test_get_vessel_info_includes_all_ownership_roles():
 
 
 def test_list_vessels_by_type_matches_ais_label():
-    results = list_vessels_by_type("Fishing")
-    assert len(results) > 0
-    assert all("Fishing" in r["ship_type_summary"] for r in results)
-    assert EVER_VIVA_VESSEL_ID not in [r["vessel_id"] for r in results]  # EVER VIVA la Cargo
+    result = list_vessels_by_type("Fishing")
+    assert result["total_matched"] > 0
+    assert result["returned_count"] == len(result["vessels"])
+    assert all("Fishing" in r["ship_type_summary"] for r in result["vessels"])
+    assert EVER_VIVA_VESSEL_ID not in [r["vessel_id"] for r in result["vessels"]]  # EVER VIVA la Cargo
 
 
 def test_list_vessels_by_type_no_match_returns_empty():
-    assert list_vessels_by_type("KhongTonTaiLoaiTauNay") == []
+    result = list_vessels_by_type("KhongTonTaiLoaiTauNay")
+    assert result == {"vessels": [], "total_matched": 0, "returned_count": 0, "has_more": False}
+
+
+def test_list_vessels_by_type_reports_has_more_when_truncated():
+    # Cargo trong data that > 50 tau (628 theo doc/architecture.md) - dat
+    # limit thap de chac chan bi cat, xac nhan has_more=True va
+    # total_matched > returned_count thay vi am tham cat bot khong bao.
+    result = list_vessels_by_type("Cargo", limit=5)
+    assert result["returned_count"] == 5
+    assert result["total_matched"] > 5
+    assert result["has_more"] is True

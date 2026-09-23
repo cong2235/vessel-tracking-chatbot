@@ -52,16 +52,18 @@ def _safe_print(text: str) -> None:
 
 def run_turn(conversation_id, question: str) -> tuple[str, list[str]]:
     store.append_message(conversation_id, "user", question)
-    context = build_llm_context(conversation_id, question)
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}] + context
 
     try:
+        # build_llm_context tu goi LLM/embedding that (tom tat + nhung khi
+        # vuot cua so) - phat hien that: loi o day (vd. 429 het quota) truoc
+        # day khong duoc bat, lam crash toan bo script giua chung va mat
+        # luon ket qua cac kich ban DA chay xong nhung chua kip ghi file.
+        # Bat chung voi loi cua run_agent_turn ben duoi de 1 luot loi khong
+        # lam mat ket qua cac kich ban/luot khac.
+        context = build_llm_context(conversation_id, question)
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}] + context
         answer, new_messages = run_agent_turn(messages)
     except Exception as exc:
-        # run_agent_turn (ban khong-streaming) raise thang thay vi phat
-        # su kien error nhu ban streaming - de 1 luot loi (vd. vuot
-        # MAX_TOOL_ITERATIONS khi can so sanh qua nhieu tau) khong lam mat
-        # ket qua cac kich ban/luot khac trong script test nay.
         return f"[LOI: {exc}]", []
 
     for m in new_messages:
@@ -84,7 +86,18 @@ def run_turn(conversation_id, question: str) -> tuple[str, list[str]]:
 
 
 def run_scenario(name: str, turns: list[dict]) -> dict:
-    """turns: [{"question": str, "expect_any": list[str] | None, "note": str | None}]"""
+    """turns: [{"question": str, "expect_any": list[str] | None,
+    "expect_tool": list[str] | None, "note": str | None}]
+
+    expect_tool: it nhat 1 trong danh sach tool PHAI xuat hien trong
+    tools_called - dung cho cau hoi ma noi dung cau tra loi kho kiem chung
+    bang string match (vd. cau hoi tong hop mo) nhung CACH lam (goi dung
+    tool tong hop thay vi tu bia so lieu) thi kiem chung duoc. Phat hien
+    that dan den them check nay: Kich ban 5 luot 3 truoc day khong co check
+    nao (chi quan sat "khong crash"), model da bia ca bang so lieu tong hop
+    (~3200 tau, trong khi ca du lieu chi co 1000 tau) ma van "trong hop ly"
+    ve mat cau chu nen khong bi phat hien qua doc luot.
+    """
     conv = store.create_conversation(title=name)
     records = []
     checked_count = 0
@@ -94,13 +107,19 @@ def run_scenario(name: str, turns: list[dict]) -> dict:
     for i, turn in enumerate(turns, 1):
         question = turn["question"]
         expect_any = turn.get("expect_any")
+        expect_tool = turn.get("expect_tool")
 
         answer, tools_called = run_turn(conv["id"], question)
 
+        checks_defined = bool(expect_any) or bool(expect_tool)
+        text_ok = contains_any(answer, expect_any) if expect_any else None
+        tool_ok = any(t in tools_called for t in expect_tool) if expect_tool else None
         passed = None
-        if expect_any:
+        if checks_defined:
             checked_count += 1
-            passed = bool(contains_any(answer, expect_any))
+            # Ca 2 dieu kien (neu co khai bao) deu phai dung - text dung ma
+            # goi sai tool (hoac nguoc lai) van la FAIL.
+            passed = bool((expect_any is None or text_ok) and (expect_tool is None or tool_ok))
             if passed:
                 passed_count += 1
 
@@ -109,7 +128,9 @@ def run_scenario(name: str, turns: list[dict]) -> dict:
         if tools_called:
             _safe_print(f"    tools: {tools_called}")
         if expect_any:
-            _safe_print(f"    ky vong 1 trong: {expect_any} -> {'PASS' if passed else 'FAIL'}")
+            _safe_print(f"    ky vong noi dung 1 trong: {expect_any} -> {'PASS' if text_ok else 'FAIL'}")
+        if expect_tool:
+            _safe_print(f"    ky vong goi tool 1 trong: {expect_tool} -> {'PASS' if tool_ok else 'FAIL'}")
         _safe_print(f"    tra loi: {answer[:200]}")
 
         records.append(
@@ -119,6 +140,7 @@ def run_scenario(name: str, turns: list[dict]) -> dict:
                 "tools_called": tools_called,
                 "answer": answer,
                 "expect_any": expect_any,
+                "expect_tool": expect_tool,
                 "passed": passed,
                 "note": turn.get("note"),
             }
@@ -144,9 +166,14 @@ def write_transcript(result: dict, filename: str) -> None:
         if r["note"]:
             lines.append(f"*({r['note']})*")
         lines.append(f"**Tra loi:** {r['answer']}")
-        if r["expect_any"] is not None:
+        if r["expect_any"] is not None or r.get("expect_tool") is not None:
             status = "PASS" if r["passed"] else "FAIL"
-            lines.append(f"**Kiem chung:** {status} (ky vong 1 trong {r['expect_any']})")
+            expect_desc = []
+            if r["expect_any"] is not None:
+                expect_desc.append(f"noi dung 1 trong {r['expect_any']}")
+            if r.get("expect_tool") is not None:
+                expect_desc.append(f"da goi tool 1 trong {r['expect_tool']}")
+            lines.append(f"**Kiem chung:** {status} (ky vong {'; '.join(expect_desc)})")
         lines.append("")
     (RESULTS_DIR / filename).write_text("\n".join(lines), encoding="utf-8")
 
@@ -230,20 +257,30 @@ SCENARIO_5 = [
     {
         "question": "Trong so do, tau nao di quang duong dai nhat?",
         "expect_any": None,
+        "expect_tool": ["compare_journeys"],
         "note": (
             "Ket qua phu thuoc tap tau da xac dinh o luot truoc (co the khac "
             "nhau tuy LLM chon loc theo role nao) - ghi nhan de doi chieu thu "
-            "cong, khong ep 1 dap an cung. Ground truth (toan bo 33 tau bat ke "
-            "role): EVER GLOBE, 1074.7 nm."
+            "cong, khong ep 1 dap an cung ve NOI DUNG. Nhung CACH lam kiem "
+            "chung duoc: phai dung compare_journeys (tinh/xep hang san trong "
+            "SQL), khong tu goi get_journey tung tau roi so sanh bang tay. "
+            "Ground truth (toan bo 33 tau bat ke role): EVER GLOBE, 1074.7 nm."
         ),
     },
     {
         "question": "Con toan bo tau cho hang (cargo) trong ngay 11/09 thi sao?",
         "expect_any": None,
+        "expect_tool": ["compare_journeys"],
         "note": (
-            "Ground truth: 628 tau co ship_type_summary chua 'Cargo' - vuot "
-            "MAX_VESSELS_PER_REQUEST=50, kiem tra tool co tu gioi han dung "
-            "khong (khong crash/treo) thay vi ep 1 dap an cu the."
+            "Ground truth: 628 tau co ship_type_summary chua 'Cargo' - vuot xa "
+            "gioi han hien thi chi tiet (50 tau/lan). Phat hien that (truoc khi "
+            "them compare_journeys(ship_type_substring=...)): model goi "
+            "list_vessels_by_type + vai get_position_at_time mau roi TU BIA ca "
+            "bang so lieu tong hop (~3200 tau, ~5.200.000 nm - trong khi CA "
+            "DATASET CHI CO 1000 TAU) - vi pham R4 nghiem trong nhung khong bi "
+            "phat hien qua kiem tra 'khong crash'. Kiem chung dung: PHAI goi "
+            "compare_journeys(ship_type_substring='Cargo', ...) - tool nay "
+            "tinh SO THAT tren TOAN BO tau khop, khong can LLM tu uoc luong."
         ),
     },
 ]

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from src.tools.journeys import compare_journeys, get_journey, get_multi_journey_geojson
+from src.tools.journeys import COMPARE_SAMPLE_SIZE, compare_journeys, get_journey, get_multi_journey_geojson
 
 EVER_VIVA_VESSEL_ID = "01926a45-3730-7381-9acb-074f84e2e999"
 KOTA_GAYA_VESSEL_ID = "014e47c3-9588-7914-9a71-4af09b458f02"
@@ -121,3 +121,41 @@ def test_compare_journeys_sorts_by_distance_descending():
 def test_compare_journeys_empty_list_returns_no_data():
     result = compare_journeys([], "2026-09-10T00:00:00Z", "2026-09-12T23:59:59Z")
     assert result == {"num_vessels": 0, "vessels": [], "farthest": None, "shortest": None}
+
+
+def test_compare_journeys_no_filter_returns_no_data():
+    result = compare_journeys(start_ts="2026-09-10T00:00:00Z", end_ts="2026-09-12T23:59:59Z")
+    assert result == {"num_vessels": 0, "vessels": [], "farthest": None, "shortest": None}
+
+
+def test_compare_journeys_by_ship_type_aggregates_over_full_matching_set_not_just_sample():
+    # Cargo trong data that > 50 tau (628 theo docs/architecture.md) - day
+    # la case that da fail truoc: model tu bia so lieu tong hop vi khong co
+    # tool nao tinh dung tren TOAN BO tau khop (chi tinh duoc tren mau hien
+    # thi). Xac nhan num_vessels/total_distance_nm/avg_distance_nm tinh
+    # tren DAY DU tau khop, "vessels" chi la mau (khong phai toan bo).
+    result = compare_journeys(
+        start_ts="2026-09-11T00:00:00Z",
+        end_ts="2026-09-11T23:59:59Z",
+        ship_type_substring="Cargo",
+    )
+    assert result["num_vessels"] > COMPARE_SAMPLE_SIZE  # nhieu hon mau hien thi
+    assert len(result["vessels"]) == COMPARE_SAMPLE_SIZE
+    assert result["total_distance_nm"] > 0
+    assert result["avg_distance_nm"] == result["total_distance_nm"] / result["num_vessels"]
+    assert result["farthest"]["distance_nm"] >= result["vessels"][0]["distance_nm"]
+    assert "note" in result  # canh bao ro rang day chi la mau, tranh LLM hieu nham la toan bo
+
+
+def test_compare_journeys_vessel_ids_mode_ignores_type_filter_and_returns_full_list():
+    # Khi truyen vessel_ids, tra ve DAY DU (khong cat mau) va KHONG co
+    # total_distance_nm/note (chi che do loc theo loai moi tra them so lieu
+    # tong hop, vi vessel_ids da la danh sach day du nguoi goi chi dinh).
+    result = compare_journeys(
+        [EVER_VIVA_VESSEL_ID, KOTA_GAYA_VESSEL_ID],
+        "2026-09-10T00:00:00Z",
+        "2026-09-12T23:59:59Z",
+    )
+    assert len(result["vessels"]) == 2
+    assert "total_distance_nm" not in result
+    assert "note" not in result

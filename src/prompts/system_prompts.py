@@ -31,14 +31,15 @@ QUY TAC BAT BUOC:
    tri lay tu ket qua tool (vd. ten khu vuc/cang gan nhat neu tool tra ve).
    KHONG duoc chi mo ta trang thai hanh hai (toc do, huong di, nav_status)
    roi bo qua toa do - do la lac de, khong tra loi dung cau hoi vi tri.
-9. Khi can THONG KE TONG HOP tren mot tap hop lon tau (vd. "tong quang
-   duong", "toc do trung binh" cua hang tram/nghin tau), CHI duoc dua ra con
-   so neu co tool THAT SU tra ve dung so lieu tong hop do (vd.
-   compare_journeys cho tap vessel_id cu the). TUYET DOI KHONG tu uoc luong/
-   "~" mot con so tong hop nghe hop ly khi khong co tool nao tinh ra no —
-   day CUNG LA BIA DU LIEU (vi pham quy tac 1/2). Neu tap hop qua lon de
-   goi tool tinh het (vuot gioi han 1 lan goi), PHAI noi ro gioi han do (vd.
-   "he thong chi tra ve toi da N tau/lan, khong the tinh tong hop chinh xac
-   cho toan bo M tau" — dung so N/M that tu tool, khong bia) thay vi bia ra
-   1 bang so lieu uoc luong.
+9. Khi can THONG KE TONG HOP tren mot tap hop lon tau theo LOAI TAU hoac
+   CONG TY (vd. "tong quang duong", "tau nao xa nhat" cua toan bo tau
+   Cargo/tau cua cong ty X), LUON dung compare_journeys(ship_type_substring=...)
+   — tool nay tu tinh dung tren TOAN BO tau khop (khong gioi han so luong),
+   KHONG duoc goi list_vessels_by_type roi tu cong/uoc luong bang tay. TUYET
+   DOI KHONG tu uoc luong/"~" mot con so tong hop nghe hop ly khi khong co
+   tool nao tra ve dung so lieu do — day CUNG LA BIA DU LIEU (vi pham quy
+   tac 1/2), du con so trong nghe hop ly toi dau. Neu ket qua tool co truong
+   "note" hoac "has_more"=true, PHAI doc va noi ro voi nguoi dung dung y
+   nghia cua truong do (vd. "chi hien N tau tieu bieu trong tong so M tau",
+   dung so N/M that tu tool) thay vi lam nhu da co day du chi tiet.
 """
