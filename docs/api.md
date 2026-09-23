@@ -80,7 +80,7 @@ data: <json>
 |---|---|---|
 | `token` | chuỗi (mảnh text) | Model đang sinh câu trả lời, đến dần |
 | `tool_call` | `{"name": str, "arguments": {...}}` | Model quyết định gọi 1 tool |
-| `data` | `{"type": "geojson", "tool": str, "geojson": {...}}` | Tool trả về dữ liệu bản đồ (N2/N3) — GeoJSON Feature/FeatureCollection, KHÔNG đi qua context LLM |
+| `data` | `{"type": "geojson", "tool": str, "geojson": {...}, "summary": {...}}` | Tool trả về dữ liệu bản đồ (N2/N3) — GeoJSON Feature/FeatureCollection, KHÔNG đi qua context LLM. `summary` là chính kết quả tool đã bỏ `geojson` (vd. `distance_nm`, `avg_speed_knots`, `is_stale`, `is_interpolated`...) để UI vẽ thẻ thống kê mà không cần tự tính lại |
 | `done` | `{"answer": str}` | Kết thúc lượt, `answer` là toàn văn câu trả lời cuối (đã ghép từ các `token`) |
 | `error` | `{"message": str}` | LLM lỗi, tool lỗi không phục hồi được, hoặc vượt số lần lặp tool tối đa — kết nối vẫn đóng gọn gàng, không treo |
 
@@ -97,7 +97,7 @@ event: tool_call
 data: {"name": "get_multi_journey_geojson", "arguments": {"vessel_ids": [...], "start_ts": "...", "end_ts": "..."}}
 
 event: data
-data: {"type": "geojson", "tool": "get_multi_journey_geojson", "geojson": {"type": "FeatureCollection", "features": [...]}}
+data: {"type": "geojson", "tool": "get_multi_journey_geojson", "geojson": {"type": "FeatureCollection", "features": [...]}, "summary": {"num_vessels": 23, "total_points": 3018, "bbox": [...], "has_more": false}}
 
 event: done
 data: {"answer": "**Hành trình của toàn bộ tàu thuộc Evergreen Marine Corp...**"}
