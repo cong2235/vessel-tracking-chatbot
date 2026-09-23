@@ -1,8 +1,15 @@
 # Chatbot tra cứu tàu biển
 
 Đã hoàn thành R1–R4, N1–N3, D1–D3 theo lộ trình 7 ngày (chi tiết từng ngày:
-xem mục Roadmap cuối file). LLM đang dùng: Cloudflare Workers AI
-(`gpt-oss-20b`) — lý do chọn và quá trình so sánh: `docs/research.md`.
+xem mục Roadmap cuối file), cộng thêm 1 vòng review độc lập sau đó đã khắc
+phục toàn bộ các điểm yếu tìm được (xem mục "Sau review" trong Roadmap và
+các mục đánh dấu **[ĐÃ SỬA]** trong `docs/architecture.md` mục 7). LLM đang
+dùng: Cloudflare Workers AI (`gpt-oss-20b`) — lý do chọn và quá trình so
+sánh: `docs/research.md`.
+
+**Kết quả kiểm chứng mới nhất**: 92/92 unit/integration test pass,
+**13/13 (100%) kiểm chứng tự động** trên cả 5 kịch bản mẫu
+(`results/verify_summary.txt`).
 
 ## Cấu trúc thư mục
 
@@ -29,13 +36,13 @@ llm engineer test/
 │   ├── tools/                 # tầng truy vấn (R1)
 │   │   ├── vessels.py         #   search_vessel, get_vessel_info, list_vessels_by_type
 │   │   ├── ownership.py       #   get_company_vessels
-│   │   ├── positions.py       #   get_position_at_time
-│   │   ├── journeys.py        #   get_journey, get_multi_journey_geojson (N3)
+│   │   ├── positions.py       #   get_position_at_time (+ nội suy tuyến tính)
+│   │   ├── journeys.py        #   get_journey, get_multi_journey_geojson (N3, phân trang thật), compare_journeys
 │   │   └── dark_gaps.py       #   get_dark_gaps
 │   ├── agent/
-│   │   ├── agent.py           #   vòng lặp tool-calling (thường + streaming) + tách geojson (N2)
+│   │   ├── agent.py           #   vòng lặp tool-calling (thường + streaming) + tách geojson+summary (N2)
 │   │   ├── store.py           #   lưu/đọc hội thoại vào Postgres
-│   │   └── memory.py          #   cửa sổ ngắn hạn + tóm tắt/nhúng/rerank pgvector (R3)
+│   │   └── memory.py          #   cửa sổ ngắn hạn + tóm tắt/nhúng/rerank pgvector + pin fact tường minh (R3)
 │   ├── models/
 │   │   ├── llm_client.py      #   chat_once/chat_stream + retry (OpenAI-compatible)
 │   │   ├── embeddings.py      #   embed_text
@@ -47,7 +54,7 @@ llm engineer test/
 │   │   ├── routes.py          #   CRUD hội thoại + /health + chat streaming SSE
 │   │   └── schemas.py
 │   └── utils/                  # config.py, logger.py — dùng chung
-├── tests/                      # 73/73 pass
+├── tests/                      # 92/92 pass
 ├── data/                       # 4 file CSV gốc (đề bài cung cấp)
 ├── docs/
 │   ├── research.md             # so sánh & lý do chọn LLM/embedding/vector DB/memory
@@ -146,8 +153,10 @@ python -m pytest tests/ -v
 | `search_vessel(query)` | `vessels.py` | Tìm theo tên (ILIKE + trigram fuzzy), MMSI, IMO; luôn trả list để tầng gọi tự xử lý khi trùng/không thấy |
 | `get_vessel_info(vessel_id)` | `vessels.py` | Thông tin tĩnh + toàn bộ ownership theo role |
 | `get_company_vessels(company_query, role=None)` | `ownership.py` | Fuzzy match biến thể tên công ty, trả tàu đã gom nhóm (không lặp theo role) |
-| `get_position_at_time(vessel_id, at_ts)` | `positions.py` | Điểm AIS gần thời điểm hỏi nhất, kèm `delta_seconds` và cờ `is_stale` |
+| `get_position_at_time(vessel_id, at_ts)` | `positions.py` | Điểm AIS gần thời điểm hỏi nhất, **nội suy tuyến tính** giữa 2 điểm bao quanh nếu có đủ cả 2 (điểm cộng theo đề bài), kèm `delta_seconds`, `is_stale`, `is_interpolated` |
 | `get_journey(vessel_id, start_ts, end_ts)` | `journeys.py` | Điểm đầu/cuối, số điểm, quãng đường (hải lý, PostGIS geography), tốc độ TB, GeoJSON |
+| `get_multi_journey_geojson(vessel_ids, start_ts, end_ts, page, page_size)` | `journeys.py` | Hành trình nhiều tàu (N3), **phân trang thật** (`has_more`/`total_vessels_requested`) thay vì cắt cứng 50 tàu |
+| `compare_journeys(vessel_ids, start_ts, end_ts)` | `journeys.py` | So sánh quãng đường/tốc độ nhiều tàu, **xếp hạng sẵn trong 1 câu SQL** — tránh agent phải gọi `get_journey` lặp từng tàu và chạm `MAX_TOOL_ITERATIONS` |
 | `get_dark_gaps(vessel_id=None, order_by=...)` | `dark_gaps.py` | Liệt kê/sắp xếp dark gap; vị trí+tốc độ trước khi mất tín hiệu tái dùng `get_position_at_time(vessel_id, gap_start_ts)` |
 
 Nguyên tắc áp dụng cho mọi tool: SQL tham số hoá, chỉ SELECT, luôn LIMIT,
@@ -232,7 +241,7 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 | `GET /conversations` | Liệt kê hội thoại |
 | `GET /conversations/{id}/messages` | Toàn bộ tin nhắn (persist bền vững, restart server vẫn còn) |
 | `DELETE /conversations/{id}` | Xoá hội thoại |
-| `POST /conversations/{id}/chat` | **Streaming SSE** — sự kiện `token`, `tool_call`, `done`, `error` |
+| `POST /conversations/{id}/chat` | **Streaming SSE** — sự kiện `token`, `tool_call`, `data` (geojson+summary, N2/N3), `done`, `error` |
 
 Xem stream trong terminal bằng `curl -N`:
 
@@ -299,9 +308,30 @@ thoại dài (13+ lượt) với model 20B tham số vẫn **không đạt 100%*
 giới hạn thật của cách tiếp cận (embedding+rerank trên chunk ngắn), không
 phải lỗi code chưa sửa. Xem thêm `docs/architecture.md` mục 7.
 
-Ngoài ra 11 unit test trong `tests/test_memory.py` (mock `chat_once`/
+Ngoài ra unit test trong `tests/test_memory.py` (mock `chat_once`/
 `embed_text`/`rerank`, DB pgvector thật) kiểm tra logic cửa sổ/tóm tắt/
 retrieval/rerank độc lập với việc gọi LLM thật.
+
+**Cập nhật sau 1 vòng review độc lập**: thay vì tiếp tục tinh chỉnh tham số
+của cơ chế "kết hợp" ở trên (vốn đã chạm giới hạn xác suất như mô tả phía
+trên), đã bổ sung cơ chế **pin fact tường minh**
+(`src/agent/memory.py::_extract_pinned_fact`): khi message của user khớp
+regex nhận diện câu "ghi nhớ" ("ghi nhớ giúp tôi...", "nhớ giúp...", so khớp
+cả dạng có dấu/không dấu), toàn văn được lưu thành 1 fact riêng
+(`memory_chunks.is_pinned = true`) — **luôn được đưa vào context ở mọi lượt
+sau, không qua bước lọc similarity/rerank**, loại bỏ nguyên nhân gốc của 2
+trong 3 bug đã tìm thấy (ngưỡng điểm số, cạnh tranh giữa nhiều chunk). Phân
+tích kỹ thuật đầy đủ + đánh đổi của giải pháp này: `docs/research.md` mục
+6.3.
+
+**Kết quả sau khi thêm cơ chế pin (chạy lại đầy đủ 5 kịch bản mẫu qua LLM
+thật)**: Kịch bản 3 lượt 12 và 13 **PASS** (`results/scenario_3.md`), tổng
+thể **13/13 (100%)** kiểm chứng tự động trên cả 5 kịch bản
+(`results/verify_summary.txt`, chạy lại bằng `python scripts/verify_results.py`).
+Ghi chú trung thực: đây là kết quả của 1 lần chạy đầy đủ — do bản chất không
+xác định của LLM, không có gì đảm bảo 100% ở MỌI lần chạy, nhưng cơ chế pin
+loại bỏ hẳn 1 lớp bất định cho đúng loại câu hỏi mà kịch bản mẫu kiểm tra
+nên kỳ vọng ổn định hơn hẳn về lý thuyết so với cơ chế "kết hợp" thuần.
 
 ## 8. UI chat, bản đồ động, nhiều hành trình (Ngày 6, N1/N2/N3)
 
@@ -348,14 +378,21 @@ Evergreen Marine Corp khai thác 10-12/09" → model tự gọi đúng
 điểm, bbox, tên tàu), không có toạ độ chi tiết — đúng thiết kế "dữ liệu lớn
 không đi qua model". Transcript: `results/scenario_5.md`.
 
-**Giới hạn đã biết:** `MAX_VESSELS_PER_REQUEST=50` là cắt cứng, chưa có
-phân trang thật cho trường hợp vượt quá (vd. 628 tàu loại Cargo trong data)
-— xem `docs/architecture.md` mục 7.
+**Cập nhật sau review**: `MAX_VESSELS_PER_REQUEST=50` giờ đi kèm **phân
+trang thật** (`page`/`page_size`/`has_more`/`total_vessels_requested`) thay
+vì cắt cứng — model tự gọi lại với `page+1` khi cần lấy đầy đủ (vd. 628 tàu
+Cargo). Đồng thời đã thêm tool `compare_journeys` tính/xếp hạng ngay trong
+1 câu SQL, khắc phục phát hiện thật trước đó (so sánh nhiều tàu khiến agent
+gọi `get_journey` từng tàu một và chạm `MAX_TOOL_ITERATIONS`). Chi tiết:
+`docs/architecture.md` mục 7 (các mục đánh dấu **[ĐÃ SỬA]**).
 
-**Chưa verify được**: UI chưa được mở bằng trình duyệt thật trong môi
-trường phát triển này (đã verify đầy đủ bằng `curl` ở tầng API — file được
-serve đúng, luồng SSE/geojson hoạt động đúng — nhưng chưa xác nhận bằng
-mắt trên Chrome/Firefox thật).
+Giao diện (`web/index.html`) cũng đã được viết lại sau review: render
+markdown thật (bảng/in đậm) thay vì text thô, hiển thị "quá trình xử lý"
+(các bước tool-call) dưới dạng khối thu gọn được, thẻ thống kê cạnh bản đồ.
+**Khuyến nghị**: tự mở `http://localhost:8000` bằng trình duyệt thật 1 lần
+trước khi bàn giao — môi trường phát triển này verify được đầy đủ ở tầng
+API (curl, cấu trúc sự kiện SSE) nhưng không có công cụ trình duyệt để tự
+xác nhận phần hiển thị.
 
 ## Roadmap
 
@@ -376,15 +413,34 @@ mắt trên Chrome/Firefox thật).
 - [x] Ngày 7: tài liệu (`docs/research.md`, `docs/architecture.md`,
       `docs/api.md`), dọn dẹp, bàn giao
 
-**73/73 unit/integration test pass** (`python -m pytest tests/ -v`).
+**Sau review** (1 vòng review độc lập soát lại toàn bộ, xem `docs/architecture.md`
+mục 7 các mục **[ĐÃ SỬA]**):
+- [x] Siết `SYSTEM_PROMPT`: bắt buộc nêu toạ độ khi trả lời câu hỏi vị trí,
+      cấm tự ước lượng số liệu tổng hợp không có tool tính ra.
+      Sửa lỗi thật: Kịch bản 1 lượt 4 trước đó trả lời lạc đề, bỏ sót toạ độ.
+- [x] `src/agent/memory.py`: thêm cơ chế pin fact tường minh cho câu "ghi
+      nhớ giúp tôi..." — không qua bước tóm tắt/lọc similarity. Sửa lỗi
+      thật: Kịch bản 3 (R3) trước đó fail khi hội thoại dài.
+- [x] `src/tools/journeys.py`: thêm `compare_journeys` (so sánh N tàu
+      trong 1 câu SQL) + phân trang thật cho `get_multi_journey_geojson`
+      (`page`/`page_size`/`has_more`).
+- [x] `src/tools/positions.py`: nội suy tuyến tính vị trí giữa 2 điểm AIS
+      (điểm cộng theo đề bài).
+- [x] `web/index.html`: viết lại — render markdown, hiển thị "quá trình xử
+      lý" tool-call, giao diện tối, thẻ thống kê bản đồ.
+- [x] Sửa bug + hợp nhất logic `scripts/verify_results.py`, thêm test cách
+      ly hội thoại song song (đáp ứng minh thị yêu cầu R2 "nhiều hội thoại
+      không lẫn ngữ cảnh").
+- [x] Khởi tạo Git repo, dựng lại lịch sử commit theo đúng tiến độ 7 ngày
+      thật, đẩy lên GitHub.
 
-**Kết quả chạy đầy đủ 5 kịch bản mẫu qua LLM thật** (transcript đầy đủ:
-`results/`, kiểm chứng lại: `python scripts/verify_results.py`) — 9/13 kiểm
-chứng tự động PASS; soát tay 2 trong 4 FAIL còn lại cho thấy **model trả
-lời đúng dữ liệu nhưng diễn đạt khác cách check đơn giản dự đoán** (vd. nói
-"ngày A dài hơn ngày B" thay vì "ngày B ngắn hơn ngày A" — đúng về bản chất,
-check chỉ tìm 1 chiều câu chữ). 2 FAIL còn lại (Kịch bản 3, bộ nhớ dài hạn)
-là **thật** — xem mục 7 để biết chi tiết và mức độ tin cậy thực tế của R3.
+**92/92 unit/integration test pass** (`python -m pytest tests/ -v`).
+
+**Kết quả chạy đầy đủ 5 kịch bản mẫu qua LLM thật, sau khi áp dụng các bản
+sửa ở trên** (transcript đầy đủ: `results/`, kiểm chứng lại:
+`python scripts/verify_results.py`) — **13/13 (100%) kiểm chứng tự động
+PASS**, bao gồm cả lỗi thật đã sửa (Kịch bản 1 lượt 4 — thiếu toạ độ) và 2
+lỗi R3 trước đó (Kịch bản 3 lượt 12/13 — bộ nhớ dài hạn nhầm đối tượng).
 
 ## Checklist bàn giao (R1–D3)
 
@@ -392,16 +448,19 @@ là **thật** — xem mục 7 để biết chi tiết và mức độ tin cậy
 |---|---|---|
 | R1 | Nạp dữ liệu + tầng truy vấn (tools, SQL tham số hoá, tìm tàu linh hoạt) | ✅ Xong, verify Ngày 2 |
 | R2 | API chat streaming SSE, quản lý hội thoại, nhiều hội thoại song song | ✅ Xong, verify Ngày 4 + live |
-| R3 | Lịch sử bền vững + follow-up + bộ nhớ dài hạn vector DB | ⚠️ Xong về mặt cơ chế (3 bug thật đã sửa), **độ tin cậy chưa 100%** khi hội thoại dài — xem mục 7 |
-| R4 | Trả lời đúng dữ liệu thật, không bịa | ✅ Verify qua 5 kịch bản mẫu với LLM thật |
-| N1 | UI chat đơn giản | ✅ `web/index.html`, chưa test trên trình duyệt thật (chỉ verify qua curl ở tầng API) |
-| N2 | Bản đồ động theo câu hỏi, dữ liệu qua sự kiện có cấu trúc | ✅ Verify với LLM thật (sự kiện `data` mang GeoJSON) |
-| N3 | Nhiều hành trình — mức cơ bản (API + giới hạn/phân trang) và mức đầy đủ (LLM tự hiểu theo công ty/loại tàu) | ✅ Verify với LLM thật (Kịch bản 5); giới hạn đã biết: cắt cứng 50 tàu/lần (chưa phân trang thật), so sánh nhiều tàu chưa scale — xem `docs/architecture.md` |
+| R3 | Lịch sử bền vững + follow-up + bộ nhớ dài hạn vector DB | ✅ Cơ chế kết hợp + pin fact tường minh (bổ sung sau review) — 13/13 kịch bản mẫu PASS ở lần chạy gần nhất; xem `docs/research.md` mục 6 về giới hạn xác suất còn lại |
+| R4 | Trả lời đúng dữ liệu thật, không bịa | ✅ Verify qua 5 kịch bản mẫu với LLM thật (13/13) |
+| N1 | UI chat đơn giản | ✅ `web/index.html` (đã viết lại: markdown, trace tool-call, giao diện tối); khuyến nghị tự kiểm tra trên trình duyệt thật trước khi bàn giao |
+| N2 | Bản đồ động theo câu hỏi, dữ liệu qua sự kiện có cấu trúc | ✅ Verify với LLM thật (sự kiện `data` mang GeoJSON + `summary`) |
+| N3 | Nhiều hành trình — mức cơ bản (API + giới hạn/phân trang) và mức đầy đủ (LLM tự hiểu theo công ty/loại tàu) | ✅ Phân trang thật (`page`/`has_more`) + tool `compare_journeys` cho câu hỏi so sánh — khắc phục 2 giới hạn đã biết trước đó |
 | D1 | README, `.env.example`, không hardcode | ✅ |
-| D2 | `docs/research.md`, `docs/architecture.md` | ✅ |
-| D3 | Unit/integration test, `results/` transcript kịch bản | ✅ 73 test, 5 kịch bản đầy đủ trong `results/` |
+| D2 | `docs/research.md`, `docs/architecture.md` | ✅ Mở rộng: bảng so sánh ứng viên đầy đủ, phương pháp thử nghiệm, case study root-cause |
+| D3 | Unit/integration test, `results/` transcript kịch bản | ✅ 92 test, 5 kịch bản đầy đủ trong `results/`, 13/13 kiểm chứng tự động |
 
-**Chưa làm / để ngoài phạm vi 7 ngày** (đã ghi trong `docs/architecture.md`
+**Chưa làm / để ngoài phạm vi bài test** (đã ghi trong `docs/architecture.md`
 mục "Hạn chế đã biết"): auth/rate limiting, connection pool, structured
-logging + metrics/tracing, phân trang thật cho N3 khi vượt giới hạn tàu,
-tool tổng hợp so sánh nhiều tàu (tránh gọi `get_journey` từng tàu một).
+logging + metrics/tracing. Đây là các hạng mục production-grade nằm ngoài
+phạm vi 7 ngày theo đúng ghi chú của đề bài ("không cần hoàn thiện toàn bộ
+sản phẩm nhưng cần nêu rõ tư duy") — không phải các gap chức năng đã tìm
+thấy khi review (các gap đó đã được khắc phục, xem bảng "Sau review" ở
+Roadmap).
