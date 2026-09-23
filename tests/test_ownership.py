@@ -31,6 +31,25 @@ def test_get_company_vessels_deduplicates_vessels_across_roles():
     assert len(vessel_ids) == len(set(vessel_ids))
 
 
+def test_get_company_vessels_does_not_match_unrelated_company_sharing_generic_words():
+    # Phat hien that (Kich ban 5 luot 1, gpt-4o-mini): tim "Evergreen Marine
+    # Corp" khop nham "CHERNAVA MARINE CORP" va "FPMC 33 MARINE CORP" (diem
+    # 0.40, chi vi trung cum tu chung "MARINE CORP") - khien tra ve lan ca
+    # tau cua cong ty khac khong lien quan. Ca 2 cong ty nham PHAI bi loai
+    # o nguong 0.45 hien tai, trong khi van giu du 3 bien the that.
+    result = get_company_vessels("Evergreen Marine Corp")
+    matched_names = {row["company_name"] for row in result["matched_companies"]}
+
+    assert "CHERNAVA MARINE CORP" not in matched_names
+    assert "FPMC 33 MARINE CORP" not in matched_names
+    assert matched_names == {
+        "EVERGREEN MARINE CORP",
+        "EVERGREEN MARINE UK LTD",
+        "EVERGREEN MARINE HONG KONG",
+        "EVERGREEN MARINE ASIA PTE LTD",
+    }
+
+
 def test_get_company_vessels_no_match_returns_empty():
     result = get_company_vessels("KHONG_TON_TAI_CONG_TY_XYZ_9999")
     assert result == {"matched_companies": [], "vessels": []}
