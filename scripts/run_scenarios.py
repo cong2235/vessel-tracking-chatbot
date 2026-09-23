@@ -300,7 +300,12 @@ SCENARIO_5 = [
             "cong, khong ep 1 dap an cung ve NOI DUNG. Nhung CACH lam kiem "
             "chung duoc: phai dung compare_journeys (tinh/xep hang san trong "
             "SQL), khong tu goi get_journey tung tau roi so sanh bang tay. "
-            "Ground truth (toan bo 33 tau bat ke role): EVER GLOBE, 1074.7 nm."
+            "Ground truth (31 tau THAT su lien quan Evergreen Marine Corp o "
+            "bat ky role nao - xac minh tay qua get_vessel_info tung tau sau "
+            "khi sua nguong fuzzy-match cong ty tu 0.4 len 0.45, xem "
+            "src/tools/ownership.py; con so 33 truoc day la SAI, dinh 2 tau "
+            "cua CHERNAVA MARINE CORP/FPMC 33 MARINE CORP - 2 cong ty khong "
+            "lien quan chi trung cum tu 'MARINE CORP'): EVER GLOBE, 1074.7 nm."
         ),
     },
     {
