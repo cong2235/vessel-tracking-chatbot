@@ -1,6 +1,5 @@
-"""Wrapper tạo vector embedding — dùng chung client OpenAI-compatible với
-llm_client.py (cùng OPENAI_API_KEY/OPENAI_BASE_URL, chỉ khác model).
-"""
+"""Wrapper tạo vector embedding, dùng chung client OpenAI-compatible với
+llm_client.py."""
 
 from __future__ import annotations
 
@@ -15,9 +14,6 @@ def embed_text(text: str) -> list[float]:
     kwargs: dict[str, Any] = {"model": get_embedding_model(), "input": text}
     dimensions = get_embedding_dimensions()
     if dimensions:
-        # Chi OpenAI text-embedding-3-* ho tro tham so nay (Matryoshka) - de
-        # trong (mac dinh None) khi dung provider khac (vd. Cloudflare bge-m3)
-        # vi ho co the tra loi 400 voi tham so la.
         kwargs["dimensions"] = dimensions
     response = client.embeddings.create(**kwargs)
     return response.data[0].embedding

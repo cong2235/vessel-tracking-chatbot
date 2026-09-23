@@ -1,3 +1,6 @@
+"""Tool: tìm vị trí AIS của tàu tại một thời điểm cụ thể, hoặc vị trí mới
+nhất hiện có nếu không truyền thời điểm."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -96,8 +99,6 @@ def _nearest(before: dict[str, Any] | None, after: dict[str, Any] | None) -> dic
 
 
 def _interpolate(before: dict[str, Any] | None, after: dict[str, Any] | None) -> dict[str, Any] | None:
-    # Chi noi suy khi co CA HAI diem bao quanh, khong trung mot diem du lieu
-    # that (delta_seconds == 0 nghia la at_ts trung dung 1 ban tin AIS).
     if before is None or after is None:
         return None
     if before["delta_seconds"] == 0 or after["delta_seconds"] == 0:
@@ -106,20 +107,13 @@ def _interpolate(before: dict[str, Any] | None, after: dict[str, Any] | None) ->
     total_seconds = after["delta_seconds"] - before["delta_seconds"]
     if total_seconds <= 0:
         return None
-    # delta_seconds tra ve tu EXTRACT(EPOCH ...) la Decimal - ep sang float
-    # ngay tu day de tranh loi Decimal*float o cac phep noi suy ben duoi
-    # (lat/lon la double precision -> float san, tron voi Decimal se loi).
     fraction = float(-before["delta_seconds"] / total_seconds)
 
     speed_knots = None
     if before["speed_knots"] is not None and after["speed_knots"] is not None:
-        # speed_knots la cot numeric (Decimal) - Decimal * float khong ho
-        # tro, phai ep ve float truoc khi noi suy.
         before_speed, after_speed = float(before["speed_knots"]), float(after["speed_knots"])
         speed_knots = before_speed + fraction * (after_speed - before_speed)
 
-    # course/heading (vong tron) va nav_status (roi rac) khong noi suy tuyen
-    # tinh hop ly - lay tu diem gan hon ve thoi gian.
     nearer = before if fraction < 0.5 else after
 
     return {
@@ -160,7 +154,7 @@ def _get_latest_position(vessel_id: str) -> dict[str, Any] | None:
         "heading_deg": row["heading_deg"],
         "nav_status": row["nav_status"],
         "delta_seconds": 0,
-        "is_stale": False,  # day dung la diem moi nhat hien co, khong "cu" so voi chinh no
+        "is_stale": False,
         "is_interpolated": False,
         "geojson": {
             "type": "Feature",

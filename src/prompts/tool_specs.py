@@ -138,10 +138,7 @@ TOOL_SPECS: list[dict[str, Any]] = [
                 "NHIEU HON 1 TAU (so sanh, liet ke hanh trinh nhieu tau, tim tau xa "
                 "nhat/gan nhat trong 1 nhom...), TUYET DOI KHONG goi tool nay lap lai "
                 "cho tung tau - dung compare_journeys (so sanh/xep hang) hoac "
-                "get_multi_journey_geojson (ve ban do) thay the. Goi get_journey "
-                "nhieu lan roi tu tong hop/so sanh bang tay RAT DE NHAM LAN so lieu "
-                "giua cac tau (da xay ra that - gan nham quang duong cua tau A cho "
-                "tau B khi tong hop thu cong tren 29 ket qua rieng le)."
+                "get_multi_journey_geojson (ve ban do) thay the."
             ),
             "parameters": {
                 "type": "object",

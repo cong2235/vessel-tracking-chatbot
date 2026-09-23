@@ -45,7 +45,7 @@ def test_get_vessel_info_returns_full_record_with_ownership():
     assert info is not None
     assert info["mmsi"] == EVER_VIVA_MMSI
     assert info["shipname"] == EVER_VIVA_NAME
-    assert isinstance(info["ownership"], list)  # co the rong, nhung phai la list
+    assert isinstance(info["ownership"], list)
 
 
 def test_get_vessel_info_unknown_id_returns_none():
@@ -53,7 +53,6 @@ def test_get_vessel_info_unknown_id_returns_none():
 
 
 def test_get_vessel_info_includes_all_ownership_roles():
-    # Tau nay co du 6 vai trò ownership trong data thật (xác minh thủ công)
     info = get_vessel_info("01692d7e-1ed0-7713-9c24-5e3ae1b59215")
     assert info is not None
     assert info["shipname"] == "KMTC OSAKA"
@@ -67,7 +66,7 @@ def test_list_vessels_by_type_matches_ais_label():
     assert result["total_matched"] > 0
     assert result["returned_count"] == len(result["vessels"])
     assert all("Fishing" in r["ship_type_summary"] for r in result["vessels"])
-    assert EVER_VIVA_VESSEL_ID not in [r["vessel_id"] for r in result["vessels"]]  # EVER VIVA la Cargo
+    assert EVER_VIVA_VESSEL_ID not in [r["vessel_id"] for r in result["vessels"]]
 
 
 def test_list_vessels_by_type_no_match_returns_empty():
@@ -76,9 +75,6 @@ def test_list_vessels_by_type_no_match_returns_empty():
 
 
 def test_list_vessels_by_type_reports_has_more_when_truncated():
-    # Cargo trong data that > 50 tau (628 theo doc/architecture.md) - dat
-    # limit thap de chac chan bi cat, xac nhan has_more=True va
-    # total_matched > returned_count thay vi am tham cat bot khong bao.
     result = list_vessels_by_type("Cargo", limit=5)
     assert result["returned_count"] == 5
     assert result["total_matched"] > 5

@@ -62,7 +62,7 @@ def test_run_agent_turn_executes_real_tool_then_returns_final_answer():
     tool_results = [m for m in new_messages if m.get("role") == "tool"]
     assert len(tool_results) == 1
     payload = json.loads(tool_results[0]["content"])
-    assert payload[0]["shipname"] == "EVER VIVA"  # tool nay goi DB that
+    assert payload[0]["shipname"] == "EVER VIVA"
 
 
 def test_run_agent_turn_returns_immediately_when_no_tool_call():
@@ -99,8 +99,6 @@ def test_run_agent_turn_unknown_tool_name_returns_error_without_crashing():
 
 
 def test_run_agent_turn_tool_exception_is_caught_and_reported_as_error():
-    # vessel_id khong hop le (khong phai uuid) -> Postgres bao loi cast khi
-    # chay that trong get_vessel_info -> phai duoc bat lai, khong crash loop
     tool_call = LLMToolCall(id="call_1", name="get_vessel_info", arguments={"vessel_id": "not-a-uuid"})
     first_response = LLMResponse(
         content=None, tool_calls=[tool_call], raw_assistant_message=_assistant_message(None, [tool_call])

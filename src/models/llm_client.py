@@ -1,6 +1,4 @@
-"""Wrapper gọi LLM (OpenAI Chat Completions) hỗ trợ tool-calling. Chỉ hỗ
-trợ 1 nhà cung cấp — cố tình không xây abstraction đa-provider (xem
-docs/research.md)."""
+"""Wrapper gọi LLM (OpenAI Chat Completions) hỗ trợ tool-calling."""
 
 from __future__ import annotations
 
@@ -22,8 +20,6 @@ from src.utils.config import (
 
 
 def _is_retryable(exc: BaseException) -> bool:
-    # 5xx/loi mang la tam thoi, dang retry. Loi 4xx (request sai) retry lai
-    # cung se fail nhu vay - khong retry, tra loi ngay.
     if isinstance(exc, APIConnectionError):
         return True
     return isinstance(exc, APIStatusError) and exc.status_code >= 500
@@ -61,18 +57,11 @@ def get_client() -> OpenAI:
     if _client is None:
         base_url = get_openai_base_url()
         if base_url is None:
-            # Phat hien that: OpenAI SDK tu doc bien moi truong OPENAI_BASE_URL
-            # THANG (khong qua get_openai_base_url()) khi ban trong "" van
-            # con TON TAI trong os.environ (vd. dong "OPENAI_BASE_URL=" rong
-            # trong .env.example/.env) - "" ton tai (khac voi bien khong ton
-            # tai) khien SDK dung "" lam base_url that su, tao URL relative
-            # loi "missing http(s):// protocol". Xoa han bien nay khoi
-            # os.environ khi rong de SDK tu dung default that su cua no.
             os.environ.pop("OPENAI_BASE_URL", None)
         _client = OpenAI(
             api_key=get_openai_api_key(),
             base_url=base_url,
-            timeout=get_llm_timeout_seconds(),  # SDK mac dinh 600s, qua dai
+            timeout=get_llm_timeout_seconds(),
         )
     return _client
 
@@ -95,8 +84,6 @@ def chat_once(
     response = _create_completion(client, **kwargs)
     message = response.choices[0].message
 
-    # content=None (tool_calls-only) hop le theo OpenAI nhung mot so API
-    # tuong thich (vd. Cloudflare) tra 400 - dung "" cho message gui di.
     assistant_message: dict[str, Any] = {"role": "assistant", "content": message.content or ""}
     tool_calls: list[LLMToolCall] = []
 
@@ -129,9 +116,6 @@ def chat_stream(
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]] | None = None,
 ) -> Iterator[dict[str, Any]]:
-    # Yield {"type":"token","content":...}* roi {"type":"final","response":LLMResponse}.
-    # tool_calls stream theo tung manh arguments (cung 1 index) - phai gop
-    # lai roi moi parse JSON duoc.
     client = get_client()
 
     kwargs: dict[str, Any] = {

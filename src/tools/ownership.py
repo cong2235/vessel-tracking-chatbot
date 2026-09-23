@@ -7,17 +7,6 @@ from typing import Any
 from src.db import get_cursor
 
 DEFAULT_LIMIT = 200
-
-# Nguong rieng cho TEN CONG TY (khac vessels.py) - phat hien that: 0.4
-# (nguong dung cho ten tau) van qua long o day vi ten cong ty hay co CUM TU
-# CHUNG (vd. "MARINE CORP", "SHIPPING LTD") lam trigram similarity bi day
-# len dua tren tu chung thay vi phan ten rieng. Vi du that: tim "Evergreen
-# Marine Corp" o nguong 0.4 khop nham CA "CHERNAVA MARINE CORP" va
-# "FPMC 33 MARINE CORP" (diem dung 0.4000, khong lien quan gi den
-# Evergreen) - khien ket qua tra ve lan ca tau cua cong ty khac. Nang len
-# 0.45 loai het cac truong hop nham nay (diem cao nhat trong nhom nham la
-# 0.40) trong khi van giu du 3 bien the that cua Evergreen (thap nhat
-# 0.4857 - EVERGREEN MARINE ASIA PTE LTD).
 MIN_SIMILARITY_SCORE = 0.45
 
 
@@ -26,7 +15,6 @@ def get_company_vessels(
     role: str | None = None,
     limit: int = DEFAULT_LIMIT,
 ) -> dict[str, Any]:
-
     company_query = company_query.strip()
     if not company_query:
         return {"matched_companies": [], "vessels": []}

@@ -14,14 +14,13 @@ EVER_VIVA_VESSEL_ID = "01926a45-3730-7381-9acb-074f84e2e999"
 def test_get_position_at_time_within_range_is_not_stale():
     result = get_position_at_time(EVER_VIVA_VESSEL_ID, "2026-09-11T12:00:00Z")
     assert result is not None
-    assert abs(result["delta_seconds"]) <= 20 * 60  # AIS bắn tin ~15-20 phút/lần
+    assert abs(result["delta_seconds"]) <= 20 * 60
     assert result["is_stale"] is False
     assert result["geojson"]["geometry"]["type"] == "Point"
     assert result["geojson"]["geometry"]["coordinates"] == [result["lon"], result["lat"]]
 
 
 def test_get_position_at_time_far_outside_range_is_stale():
-    # Ngoai het 3 ngay du lieu (10-12/09/2026) -> chac chan la stale
     result = get_position_at_time(EVER_VIVA_VESSEL_ID, "2026-01-01T00:00:00Z")
     assert result is not None
     assert result["is_stale"] is True
@@ -35,8 +34,6 @@ def test_get_position_at_time_unknown_vessel_returns_none():
 
 
 def test_get_position_at_time_interpolates_between_two_real_points():
-    # Ban tin that: 11:50:35 (9.6735, 109.30558) va 12:49:37 (9.93066, 109.46918)
-    # xac minh thu cong tu DB - khong co ban tin nao giua khoang nay.
     result = get_position_at_time(EVER_VIVA_VESSEL_ID, "2026-09-11T12:20:00Z")
     assert result is not None
     assert result["is_interpolated"] is True
@@ -57,11 +54,6 @@ def test_get_position_at_time_exact_match_is_not_interpolated():
 
 
 def test_get_position_at_time_no_at_ts_returns_latest_point_not_earliest():
-    # Phat hien that: cau hoi "vi tri cuoi cung" khong co moc thoi gian cu
-    # the buoc model phai TU DOAN 1 at_ts - da tung doan sai (chon moc dau
-    # thay vi cuoi) va tra ve nham diem CU NHAT thay vi MOI NHAT. Bo trong
-    # at_ts phai luon tra ve diem cuoi cung that su (2026-09-12T11:48:54Z
-    # theo docstring dau file), khong duoc phu thuoc vao viec doan dung/sai.
     result = get_position_at_time(EVER_VIVA_VESSEL_ID)
     assert result is not None
     assert result["event_ts"].startswith("2026-09-12 11:48:54")

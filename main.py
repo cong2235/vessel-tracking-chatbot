@@ -9,7 +9,7 @@ from src.api.routes import router
 from src.utils.config import get_app_host, get_app_port
 
 app = FastAPI(title="Vessel Chatbot API")
-app.include_router(router)  # dang ky truoc StaticFiles de /conversations, /health khong bi static che
+app.include_router(router)
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 if WEB_DIR.exists():

@@ -40,13 +40,10 @@ def get_openai_base_url() -> str | None:
 
 
 def get_max_tokens() -> int:
-    # gpt-oss dung reasoning_content (Harmony) truoc content cuoi - can du
-    # token hoac content tra ve rong.
     return int(os.environ.get("LLM_MAX_TOKENS", "4096"))
 
 
 def get_llm_timeout_seconds() -> float:
-    # SDK mac dinh 600s - qua dai, tung treo agent vo han khi mang loi.
     return float(os.environ.get("LLM_TIMEOUT_SECONDS", "60"))
 
 
@@ -67,12 +64,6 @@ def get_embedding_model() -> str:
 
 
 def get_embedding_dimensions() -> int | None:
-    # Tuy chon: OpenAI text-embedding-3-* ho tro thu nho so chieu output qua
-    # tham so `dimensions` (Matryoshka) ma khong can doi model - dung de giu
-    # nguyen cot vector(1024) da co trong schema.sql khi doi tu bge-m3 (1024
-    # chieu, khong ho tro tham so nay) sang text-embedding-3-small (mac dinh
-    # 1536 chieu). Bo trong = khong truyen tham so (giu nguyen so chieu goc
-    # cua model, can cho provider khong ho tro `dimensions`, vd. Cloudflare).
     value = os.environ.get("EMBEDDING_DIMENSIONS")
     return int(value) if value else None
 

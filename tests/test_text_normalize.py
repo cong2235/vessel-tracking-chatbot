@@ -16,9 +16,6 @@ def test_contains_any_matches_exact_substring():
 
 
 def test_contains_any_matches_across_thousand_separator_spaces():
-    # Phat hien that tu Kich ban 1 luot 1: model dinh dang "563 152 500"
-    # (dau cach ASCII thuong, khong phai Unicode dac biet) trong khi ground
-    # truth ky vong chuoi so lien "563152500" - phai van khop.
     assert contains_any("MMSI: 563 152 500", ["563152500"]) == ["563152500"]
 
 

@@ -110,9 +110,9 @@ def test_derive_title_from_message_collapses_whitespace():
 def test_derive_title_from_message_truncates_long_message_at_word_boundary():
     text = "Cho toi biet chi tiet ve hanh trinh cua tau EVER VIVA trong ba ngay gan day nhat cua du lieu he thong"
     title = derive_title_from_message(text)
-    assert len(title) <= 61  # MAX_TITLE_LENGTH + dau "…"
+    assert len(title) <= 61
     assert title.endswith("…")
-    assert not title[:-1].endswith(" ")  # cat dung ranh gioi tu, khong con khoang trang thua
+    assert not title[:-1].endswith(" ")
 
 
 def test_set_conversation_title_updates_existing_conversation():

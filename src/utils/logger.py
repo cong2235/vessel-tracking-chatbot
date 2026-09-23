@@ -1,8 +1,4 @@
-"""Logger dùng chung — gọi get_logger(__name__) ở bất kỳ module nào cần log.
-
-Mức log đọc qua config.get_log_level() (biến môi trường LOG_LEVEL, mặc định
-INFO) — không hardcode.
-"""
+"""Logger dùng chung cho toàn bộ ứng dụng."""
 
 from __future__ import annotations
 

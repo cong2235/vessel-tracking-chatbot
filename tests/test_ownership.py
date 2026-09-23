@@ -6,10 +6,9 @@ from src.tools.ownership import get_company_vessels
 
 
 def test_get_company_vessels_finds_evergreen_variants():
-    result = get_company_vessels("EVERGREEN MARIN")  # co ý thiếu vài ký tự cuối
+    result = get_company_vessels("EVERGREEN MARIN")
     matched_names = {row["company_name"] for row in result["matched_companies"]}
 
-    # Data thật có it nhat 4 bien the ten cong ty Evergreen
     assert "EVERGREEN MARINE CORP" in matched_names
     assert len(matched_names) >= 2
 
@@ -24,19 +23,12 @@ def test_get_company_vessels_filters_by_role():
 
 
 def test_get_company_vessels_deduplicates_vessels_across_roles():
-    # KMTC OSAKA co 6 role ownership (xac minh thu cong) - phai chi xuat
-    # hien 1 lan trong danh sach tau, khong lap lai theo tung role
     result = get_company_vessels("PACIFIC INTERNATIONAL LINES")
     vessel_ids = [v["vessel_id"] for v in result["vessels"]]
     assert len(vessel_ids) == len(set(vessel_ids))
 
 
 def test_get_company_vessels_does_not_match_unrelated_company_sharing_generic_words():
-    # Phat hien that (Kich ban 5 luot 1, gpt-4o-mini): tim "Evergreen Marine
-    # Corp" khop nham "CHERNAVA MARINE CORP" va "FPMC 33 MARINE CORP" (diem
-    # 0.40, chi vi trung cum tu chung "MARINE CORP") - khien tra ve lan ca
-    # tau cua cong ty khac khong lien quan. Ca 2 cong ty nham PHAI bi loai
-    # o nguong 0.45 hien tai, trong khi van giu du 3 bien the that.
     result = get_company_vessels("Evergreen Marine Corp")
     matched_names = {row["company_name"] for row in result["matched_companies"]}
 

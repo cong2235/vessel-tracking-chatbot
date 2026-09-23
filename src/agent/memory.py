@@ -1,9 +1,6 @@
-"""Bộ nhớ hội thoại (R3): cửa sổ ngắn hạn + tóm tắt/nhúng vào pgvector khi
-vượt ngưỡng, truy xuất lại theo ngữ nghĩa (embedding + rerank) khi cần.
-
-Ngưỡng cửa sổ đếm theo số message, không phải số token hay số "lượt" —
-1 lượt có gọi tool chiếm nhiều hơn 1 message.
-"""
+"""Bộ nhớ hội thoại: cửa sổ ngắn hạn, tóm tắt và nhúng vào pgvector khi
+vượt ngưỡng, pin fact tường minh cho yêu cầu ghi nhớ, truy xuất theo ngữ
+nghĩa khi cần."""
 
 from __future__ import annotations
 
@@ -24,9 +21,6 @@ logger = get_logger(__name__)
 
 MEMORY_RETRIEVAL_TOP_K = 3
 RERANK_CANDIDATE_POOL = 20
-# bge-m3 cho diem similarity thap/hep (0.24-0.30) tren tom tat ngan - khong
-# dung threshold de quyet dinh lien quan, chi loc rac (xem rerank ben duoi
-# de tang do phan biet).
 MEMORY_MIN_SIMILARITY = 0.15
 
 SUMMARIZE_PROMPT = (
@@ -94,8 +88,6 @@ def build_llm_context(conversation_id: UUID, latest_user_message: str) -> list[d
 
 
 def _safe_window_start(rows: list[dict[str, Any]], window_size: int) -> int:
-    # Khong duoc cat dua cap assistant(tool_calls)/tool-result - message
-    # 'tool' dung mot minh bi API tu choi (400).
     start = max(0, len(rows) - window_size)
     while start > 0 and rows[start]["role"] == "tool":
         start -= 1
@@ -187,8 +179,6 @@ def _summarize(text: str) -> str:
 
 
 def _retrieve_pinned_facts(conversation_id: UUID) -> list[dict[str, Any]]:
-    """Fact tuong minh ("ghi nho giup toi...") - luon tra ve, khong loc theo
-    similarity/rerank (xem _extract_pinned_fact va db/schema.sql)."""
     with get_cursor() as cur:
         cur.execute(
             """
@@ -225,10 +215,6 @@ def _retrieve_relevant_memory(
     if not get_reranker_enabled() or len(candidates) <= top_k:
         return candidates[:top_k]
 
-    # Embedding similarity mot minh khong du phan biet khi co nhieu chunk
-    # ngan/giong nhau (phat hien that: chunk dung bi loai khoi top-3 giua
-    # 11 chunk canh tranh diem 0.24-0.35 sat nhau). Rerank (cross-encoder)
-    # phan biet tot hon nhieu trong tinh huong nay.
     try:
         ranked = rerank(query_text, [c["content_summary"] for c in candidates], top_k)
         return [candidates[i] for i, _ in ranked if i < len(candidates)]
